@@ -1,91 +1,74 @@
 import { DiagramType, GeneratedContent, FileData, Message, Flashcard, QuizQuestion } from '../types';
 
-let ready = false;
-let progress = 0;
-let llm: any = null;
+const OLLAMA_BASE_URL = 'http://localhost:11434';
+let activeModel = localStorage.getItem('studysketch_active_model') || 'llama3.2';
 
-export async function initializeAI(onProgress?: (p: number) => void): Promise<void> {
-  console.log('[StudySketch] initializeAI called');
+export const setActiveModel = (model: string): void => {
+  activeModel = model;
+  localStorage.setItem('studysketch_active_model', model);
+};
+
+export { activeModel };
+
+export async function getAvailableModels(): Promise<string[]> {
   try {
-    // Log every step so we can see exactly where it fails
-    console.log('[StudySketch] Step 1: importing RunAnywhere...');
-    const { RunAnywhere } = await import('@runanywhere/web');
-    
-    console.log('[StudySketch] Step 2: calling RunAnywhere.initialize()...');
-    console.log('[StudySketch] RunAnywhere object keys:', Object.keys(RunAnywhere));
-    
-    await RunAnywhere.initialize();
-    console.log('[StudySketch] RunAnywhere initialized successfully');
-    
-    console.log('[StudySketch] Step 3: importing LlamaCPP...');
-    const { LlamaCPP } = await import('@runanywhere/web-llamacpp');
-    console.log('[StudySketch] LlamaCPP object keys:', Object.keys(LlamaCPP));
-    
-    console.log('[StudySketch] Step 4: registering LlamaCPP backend...');
-    await LlamaCPP.register();
-    console.log('[StudySketch] LlamaCPP registered successfully');
-    
-    console.log('[StudySketch] Step 5: importing TextGeneration...');
-    const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-    console.log('[StudySketch] TextGeneration object keys:', Object.keys(TextGeneration));
-    console.log('[StudySketch] TextGeneration type:', typeof TextGeneration);
-    
-    console.log('[StudySketch] Step 6: checking TextGeneration methods...');
-    console.log('[StudySketch] TextGeneration methods:', Object.getOwnPropertyNames(TextGeneration));
-    console.log('[StudySketch] TextGeneration prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(TextGeneration)));
-    
-    console.log('[StudySketch] Step 7: loading model using RunAnywhere.loadModel()...');
-    await RunAnywhere.loadModel('smollm2');
-    console.log('[StudySketch] Model loaded via RunAnywhere.loadModel()');
-    
-    ready = true;
-    console.log('[StudySketch] AI ready!');
-    
-    if (onProgress) {
-      onProgress(100);
-    }
-  } catch (err) {
-    console.error('[StudySketch] FULL ERROR:', err);
-    console.error('[StudySketch] Error message:', (err as any)?.message);
-    console.error('[StudySketch] Error stack:', (err as any)?.stack);
-    ready = false;
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.models ? data.models.map((m: any) => m.name) : [];
+  } catch {
+    return [];
   }
 }
-
-async function runPrompt(prompt: string): Promise<string> {
-  if (!ready) {
-    throw new Error('AI not ready. Please wait for model to load.');
-  }
-  
-  console.log('[StudySketch] runPrompt called, ready:', ready);
-  
-  // Try different generation methods
-  try {
-    console.log('[StudySketch] Step 1: importing TextGeneration...');
-    const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-    
-    console.log('[StudySketch] Step 2: attempting TextGeneration.generate()...');
-    const result = await TextGeneration.generate(prompt, {
-      maxTokens: 1024,
-    });
-    
-    console.log('[StudySketch] Generation successful, result keys:', Object.keys(result));
-    return result.text;
-  } catch (err) {
-    console.error('[StudySketch] Generation error:', err);
-    throw err;
-  }
-}
-
-export function isAIReady(): boolean { 
-  console.log('[StudySketch] isAIReady called, returning:', ready);
-  return ready; 
-}
-
-export function getLoadingProgress(): number { return progress; }
 
 /**
- * Generate a Mermaid diagram from input text using AI.
+ * Check if Ollama is running and reachable.
+ */
+export async function checkOllamaStatus(): Promise<boolean> {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Send a prompt to Ollama and return the response text.
+ */
+async function runPrompt(prompt: string): Promise<string> {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: activeModel,
+        prompt,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.response || '';
+  } catch (error: any) {
+    if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+      throw new Error(
+        'Cannot connect to Ollama. Make sure it is running:\n' +
+        '  1. ollama serve\n' +
+        '  2. ollama pull llama3.2'
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Generate a Mermaid diagram from input text using Ollama.
  */
 export const generateDiagramAndSummary = async (
   input: string,
@@ -101,26 +84,7 @@ Use mindmap or flowchart TD format. Max 20 nodes.
 Text: ${truncatedText}`;
 
   const rawDiagram = await runPrompt(diagramPrompt);
-  
-  // Sanitize common AI Mermaid mistakes
-  let diagram = rawDiagram.trim();
-  
-  // Remove markdown code fences if present
-  diagram = diagram.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '');
-  
-  // Fix arrow syntax: --> should be -->
-  diagram = diagram.replace(/-->/g, '-->');
-  
-  // Fix arrow syntax: ==> should be ==>  
-  diagram = diagram.replace(/==>/g, '==>');
-  
-  // Remove style lines that cause parse errors in strict mode
-  diagram = diagram.replace(/^\s*style\s+.+$/gm, '');
-  
-  // Remove classDef lines if causing issues
-  diagram = diagram.replace(/^\s*classDef\s+.+$/gm, '');
-  
-  const cleanDiagram = diagram.trim();
+  const cleanDiagram = rawDiagram.replace(/```mermaid|```/g, '').trim();
 
   if (onProgress) onProgress('Step 1 of 3: Generating one-liner...');
   const oneLinerPrompt = `Summarize this text in exactly one sentence. Return plain text only, no extra formatting.\nText: ${truncatedText}`;
@@ -172,7 +136,7 @@ Text: ${truncatedText}`;
 };
 
 /**
- * Ask a question about uploaded content using AI.
+ * Ask a question about uploaded content using Ollama.
  */
 export const askQuestionAboutContent = async (
   _history: Message[],
@@ -188,7 +152,7 @@ export const askQuestionAboutContent = async (
 };
 
 /**
- * Generate a 6-question multiple choice quiz from uploaded content using AI.
+ * Generate a 6-question multiple choice quiz from uploaded content using Ollama.
  */
 export const generateQuiz = async (extractedText: string): Promise<QuizQuestion[]> => {
   const truncatedText = extractedText.substring(0, 3000);
@@ -235,14 +199,4 @@ Text: ${truncatedText}`;
                   : 0,
     explanation: q.explanation || 'No explanation provided.'
   }));
-};
-
-// Legacy exports for backward compatibility - these are no longer needed but kept to avoid breaking imports
-export const checkOllamaStatus = async (): Promise<boolean> => ready;
-export const getAvailableModels = async (): Promise<string[]> => ['smollm2'];
-
-// Mock activeModel for backward compatibility
-export const activeModel = 'smollm2';
-export const setActiveModel = (_model: string): void => {
-  // No-op - we use fixed model
 };

@@ -1,12 +1,15 @@
 import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure worker for v3.x compatibility
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.js',
+    import.meta.url
+  ).toString();
+}
+
 import mammoth from 'mammoth';
 import Tesseract from 'tesseract.js';
-
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
 
 /**
  * Extract text from a file entirely in the browser.
@@ -33,22 +36,17 @@ export async function extractText(file: File): Promise<string> {
   }
 }
 
-/** PDF → text using pdfjs-dist */
-async function extractFromPDF(file: File): Promise<string> {
+/** PDF → text using pdfjs-dist v3.x */
+export async function extractFromPDF(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-  const pages: string[] = [];
+  let text = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item: any) => item.str)
-      .join(' ');
-    pages.push(pageText);
+    text += content.items.map((item: any) => ('str' in item ? item.str : '')).join(' ') + '\n';
   }
-
-  return pages.join('\n\n');
+  return text.trim();
 }
 
 /** DOCX → text using mammoth */
