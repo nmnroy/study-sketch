@@ -34,12 +34,44 @@ export async function initializeAI(onProgress?: (p: number) => void): Promise<vo
     console.log('[StudySketch] TextGeneration methods:', Object.getOwnPropertyNames(TextGeneration));
     console.log('[StudySketch] TextGeneration prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(TextGeneration)));
     
-    console.log('[StudySketch] Step 7: loading model using RunAnywhere.loadModel()...');
-    await RunAnywhere.loadModel('smollm2');
-    console.log('[StudySketch] Model loaded via RunAnywhere.loadModel()');
+    console.log('[StudySketch] Step 7: checking what RunAnywhere methods we can use...');
+    console.log('[StudySketch] RunAnywhere methods:', Object.getOwnPropertyNames(RunAnywhere));
+    console.log('[StudySketch] RunAnywhere prototype:', Object.getOwnPropertyNames(Object.getPrototypeOf(RunAnywhere)));
     
-    ready = true;
-    console.log('[StudySketch] AI ready!');
+    // Try to use TextGeneration directly without model loading first
+    // Maybe the SDK handles model loading internally
+    console.log('[StudySketch] Step 8: trying TextGeneration without explicit model loading...');
+    
+    try {
+      // Try a simple generation to see what happens
+      const testResult = await TextGeneration.generate('Hello', { maxTokens: 10 });
+      console.log('[StudySketch] Test generation successful:', testResult);
+      ready = true;
+      console.log('[StudySketch] AI ready! (TextGeneration works without explicit model loading)');
+    } catch (testErr) {
+      console.log('[StudySketch] Test generation failed:', (testErr as any)?.message);
+      
+      // If that fails, try to use RunAnywhere's model management
+      console.log('[StudySketch] Step 9: trying RunAnywhere model management...');
+      
+      try {
+        // Check if we can register models
+        console.log('[StudySketch] Available models before:', RunAnywhere.availableModels());
+        
+        // Try to download/load a model using the basic approach
+        await RunAnywhere.downloadModel('tinyllama-1.1b');
+        console.log('[StudySketch] Model download completed');
+        
+        await RunAnywhere.loadModel('tinyllama-1.1b');
+        console.log('[StudySketch] Model loaded successfully!');
+        
+        ready = true;
+        console.log('[StudySketch] AI ready!');
+      } catch (modelErr) {
+        console.log('[StudySketch] Model loading also failed:', (modelErr as any)?.message);
+        throw new Error('Both direct generation and model loading failed');
+      }
+    }
     
     if (onProgress) {
       onProgress(100);
