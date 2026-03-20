@@ -8,7 +8,7 @@ import Flashcards from './components/Flashcards';
 import ChatPanel from './components/ChatPanel';
 import QuizMode from './components/QuizMode';
 import SessionHistory from './components/SessionHistory';
-import { generateDiagramAndSummary, askQuestionAboutContent, checkOllamaStatus, generateQuiz, activeModel } from './services/localAI';
+import { generateDiagramAndSummary, askQuestionAboutContent, initializeAI, generateQuiz, getLoadingProgress, isAIReady } from './services/localAI';
 import ModelSwitcher from './components/ModelSwitcher';
 import { saveSession, StudySession } from './services/sessionHistory';
 import { DiagramType, GeneratedContent, Message, ProcessingState, QuizQuestion } from './types';
@@ -142,17 +142,27 @@ const App: React.FC = () => {
     navigator.clipboard.writeText(text);
   };
 
-  // Ollama Status
-  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+  // AI Status
+  const [aiReady, setAiReady] = useState<boolean>(false);
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
 
   useEffect(() => {
-    const check = async () => {
-      const status = await checkOllamaStatus();
-      setOllamaRunning(status);
+    const initAI = async () => {
+      if (!isAIReady()) {
+        try {
+          await initializeAI((progress) => {
+            setLoadingProgress(progress);
+          });
+          setAiReady(true);
+        } catch (error) {
+          console.error('Failed to initialize AI:', error);
+          setAiReady(false);
+        }
+      } else {
+        setAiReady(true);
+      }
     };
-    check();
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
+    initAI();
   }, []);
 
   useEffect(() => {
@@ -375,15 +385,15 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
-      {/* Top Persistent Status Bar */}
-      {ollamaRunning === false && (
-        <div className="bg-red-500 text-white text-center text-sm font-medium py-1.5 flex justify-center items-center gap-2">
-          ⚠️ Ollama not running — start with: ollama serve
+      {/* AI Status Bar */}
+      {!aiReady && loadingProgress > 0 && (
+        <div className="bg-blue-500 text-white text-center text-sm font-medium py-1.5 flex justify-center items-center gap-2">
+          🧠 Loading AI Model: {loadingProgress}%
         </div>
       )}
-      {ollamaRunning === true && (
+      {aiReady && (
         <div className="bg-emerald-500 text-white text-center text-sm font-medium py-1.5 flex justify-center items-center gap-2">
-          🟢 Running 100% locally — no data leaves your machine
+          🟢 AI Ready — 100% Private & Offline
         </div>
       )}
 
@@ -399,9 +409,9 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <ModelSwitcher key={activeModel} />
-          <span className="bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-full border border-slate-200 flex items-center gap-1.5">
-             🔒 Fully Offline
+          <ModelSwitcher />
+          <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-200 flex items-center gap-1.5 shadow-sm">
+             🔒 100% Private · Runs Offline
           </span>
           <button 
             onClick={() => setIsHistoryOpen(true)}
