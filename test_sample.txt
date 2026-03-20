@@ -1,0 +1,13 @@
+Photosynthesis is the process used by plants, algae, and certain bacteria to harness energy from sunlight and turn it into chemical energy.
+
+The process takes place primarily in the chloroplasts, which contain the pigment chlorophyll. Chlorophyll absorbs light energy, which is then used to convert carbon dioxide and water into glucose and oxygen.
+
+Key Facts:
+- Location: Chloroplasts (specifically the thylakoid membranes and stroma)
+- Inputs: Carbon Dioxide (CO2), Water (H2O), Sunlight
+- Outputs: Glucose (C6H12O6), Oxygen (O2)
+- Two main stages: Light-dependent reactions and the Calvin Cycle
+
+The light-dependent reactions occur in the thylakoid membranes and produce ATP and NADPH. The Calvin Cycle occurs in the stroma and uses ATP and NADPH to fix carbon dioxide into glucose.
+
+Photosynthesis is fundamental for life on Earth as it produces the oxygen we breathe and forms the base of most food chains.

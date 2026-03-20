@@ -1,5 +1,17 @@
-
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { motion, AnimatePresence } from 'framer-motion';
+import FileUpload from './components/FileUpload';
+import AudioRecorder from './components/AudioRecorder';
+import MermaidDiagram from './components/MermaidDiagram';
+import Flashcards from './components/Flashcards';
+import ChatPanel from './components/ChatPanel';
+import QuizMode from './components/QuizMode';
+import SessionHistory from './components/SessionHistory';
+import { generateDiagramAndSummary, askQuestionAboutContent, checkOllamaStatus, generateQuiz, activeModel } from './services/localAI';
+import ModelSwitcher from './components/ModelSwitcher';
+import { saveSession, StudySession } from './services/sessionHistory';
+import { DiagramType, GeneratedContent, Message, ProcessingState, QuizQuestion } from './types';
 import { 
   BrainCircuit, 
   Layout, 
@@ -11,25 +23,21 @@ import {
   BookOpen,
   Users,
   CalendarRange,
-  Cpu,
-  Zap,
-  Smartphone,
   Info,
   X,
   Layers,
   Edit2,
   Save,
-  Download,
   RotateCw,
-  Play
+  Play,
+  Copy,
+  MessageSquare,
+  Upload,
+  Download,
+  History as HistoryIcon,
+  CheckCircle,
+  Gamepad2
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-
-import FileUpload from './components/FileUpload';
-import MermaidDiagram from './components/MermaidDiagram';
-import ChatPanel from './components/ChatPanel';
-import { generateDiagramAndSummary, askQuestionAboutContent } from './services/gemini';
-import { DiagramType, FileData, GeneratedContent, Message, ProcessingState } from './types';
 
 // Updated README Content matching the user's description
 const README_CONTENT = `
@@ -108,7 +116,7 @@ flowchart LR
 const App: React.FC = () => {
   // State
   const [inputText, setInputText] = useState('');
-  const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+  const [extractedFileText, setExtractedFileText] = useState<string>('');
   const [selectedType, setSelectedType] = useState<DiagramType>(DiagramType.MINDMAP);
   
   const [processingState, setProcessingState] = useState<ProcessingState>({ status: 'idle' });
@@ -120,11 +128,32 @@ const App: React.FC = () => {
   
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'diagram' | 'summary' | 'flashcards'>('diagram');
-  const [showDocs, setShowDocs] = useState(false);
   
-  // Flashcard Flip State
-  const [flippedCards, setFlippedCards] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<'upload' | 'diagram' | 'summary' | 'flashcards' | 'chat' | 'quiz'>('upload');
+  const [summaryTab, setSummaryTab] = useState<'oneLiner'|'paragraph'|'keyPoints'>('oneLiner');
+  const [showDocs, setShowDocs] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [currentFileName, setCurrentFileName] = useState<string>('');
+  
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+  
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  // Ollama Status
+  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = async () => {
+      const status = await checkOllamaStatus();
+      setOllamaRunning(status);
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (content?.diagramCode) {
@@ -134,7 +163,8 @@ const App: React.FC = () => {
 
   // Handlers
   const handleGenerate = async () => {
-    if (!inputText && !selectedFile) {
+    const combinedText = [inputText, extractedFileText].filter(Boolean).join('\n\n');
+    if (!combinedText.trim()) {
       alert("Please provide text or upload a file.");
       return;
     }
@@ -144,12 +174,38 @@ const App: React.FC = () => {
     setIsEditingDiagram(false);
     
     try {
-      const result = await generateDiagramAndSummary(inputText, selectedFile, selectedType);
+      const result = await generateDiagramAndSummary(
+        combinedText, 
+        null, 
+        selectedType, 
+        (msg) => setProcessingState(prev => ({ ...prev, message: msg }))
+      );
       setContent(result);
       setProcessingState({ status: 'completed' });
-      setActiveTab('diagram');
+      setActiveTab('summary');
+      setSummaryTab('oneLiner');
+
+      // Auto-save to history
+      const session: StudySession = {
+        id: crypto.randomUUID(),
+        fileName: currentFileName || 'Untitled Notes',
+        fileType: currentFileName.split('.').pop() || 'text',
+        createdAt: new Date().toISOString(),
+        extractedText: combinedText,
+        diagramCode: result.diagramCode,
+        summary: {
+          oneliner: result.summary.oneLiner,
+          paragraph: result.summary.paragraph,
+          bullets: result.summary.keyPoints.split('\n').map(s => s.trim().replace(/^\*\s*/, '')).filter(Boolean)
+        },
+        flashcards: result.flashcards.map(f => ({ question: f.front, answer: f.back }))
+      };
+      saveSession(session);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+
     } catch (error) {
-      setProcessingState({ status: 'error', message: 'Failed to generate content. Please try again.' });
+      setProcessingState({ status: 'error', message: 'Generation failed. Please try again.' });
       console.error(error);
     }
   };
@@ -166,7 +222,11 @@ const App: React.FC = () => {
     B --> E["Glucose"]
     B --> F["Oxygen"]
     style B fill:#bbf,stroke:#333,stroke-width:2px`,
-            summary: "## Photosynthesis Summary\n\n**Photosynthesis** is a biological process used by many cellular organisms to convert light energy into chemical energy. \n\n*   **Location**: Chloroplasts (via Chlorophyll)\n*   **Inputs**: Sunlight, Water (H2O), Carbon Dioxide (CO2)\n*   **Outputs**: Glucose (Energy), Oxygen (O2)\n\nThis process is fundamental for life on Earth as it provides oxygen and energy for the food web.",
+            summary: {
+              oneLiner: "Photosynthesis is the fundamental biological process by which plants and bacteria convert sunlight, water, and carbon dioxide into energy-rich glucose and oxygen.",
+              paragraph: "Photosynthesis is a biological process used by many cellular organisms to convert light energy into chemical energy. The process occurs primarily in the chloroplasts, utilizing the pigment chlorophyll to absorb sunlight. The system takes in water (H2O), carbon dioxide (CO2), and solar energy to drive a series of light-dependent and Calvin cycle reactions. The ultimate output is glucose, which provides energy for the plant, and oxygen, which is released into the atmosphere. This cycle forms the foundational basis for almost all life and complex food webs on Earth.",
+              keyPoints: "* Occurs in chloroplasts via chlorophyll\n* Inputs: Sunlight, Water (H2O), Carbon Dioxide (CO2)\n* Outputs: Glucose (Energy), Oxygen (O2)\n* Fundamental for life and global food webs"
+            },
             diagramType: DiagramType.MINDMAP,
             flashcards: [
                 { id: 'demo1', front: "Where does photosynthesis take place?", back: "In the Chloroplasts" },
@@ -177,6 +237,40 @@ const App: React.FC = () => {
         setProcessingState({ status: 'completed' });
         setActiveTab('diagram');
     }, 1500);
+  };
+  
+  const handleGenerateQuiz = async () => {
+    const combinedText = [inputText, extractedFileText].filter(Boolean).join('\n\n');
+    if (!combinedText.trim()) {
+      alert("Please provide text or upload a file.");
+      return;
+    }
+
+    setIsGeneratingQuiz(true);
+    setProcessingState({ status: 'processing', message: 'Generating multiple choice questions...' });
+    
+    try {
+      const quizData = await generateQuiz(combinedText);
+      setContent(prev => {
+        if (prev) {
+          return { ...prev, quiz: quizData };
+        }
+        return {
+          diagramCode: '',
+          summary: { oneLiner: '', paragraph: '', keyPoints: '' },
+          diagramType: selectedType,
+          flashcards: [],
+          quiz: quizData
+        };
+      });
+      setProcessingState({ status: 'completed' });
+      setActiveTab('quiz');
+    } catch (error) {
+      setProcessingState({ status: 'error', message: 'Quiz generation failed. Please try again.' });
+      console.error(error);
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
   };
 
   const handleSendMessage = async (text: string) => {
@@ -191,11 +285,12 @@ const App: React.FC = () => {
     setIsChatLoading(true);
 
     try {
+      const combinedContext = [inputText, extractedFileText].filter(Boolean).join('\n\n');
       const answer = await askQuestionAboutContent(
         [...chatMessages, newMessage], 
         text, 
-        inputText, 
-        selectedFile
+        combinedContext, 
+        null
       );
       
       const botMessage: Message = {
@@ -219,12 +314,28 @@ const App: React.FC = () => {
       setIsChatLoading(false);
     }
   };
-  
-  const toggleCardFlip = (id: string) => {
-    setFlippedCards(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
+
+  const handleLoadSession = (session: StudySession) => {
+    setExtractedFileText(session.extractedText);
+    setInputText('');
+    setCurrentFileName(session.fileName);
+    
+    const result: GeneratedContent = {
+        diagramCode: session.diagramCode,
+        summary: {
+            oneLiner: session.summary.oneliner,
+            paragraph: session.summary.paragraph,
+            keyPoints: session.summary.bullets.map(b => `* ${b}`).join('\n')
+        },
+        diagramType: session.diagramCode.startsWith('graph') ? DiagramType.FLOWCHART : DiagramType.MINDMAP,
+        flashcards: session.flashcards.map((f, i) => ({ id: `${session.id}-${i}`, front: f.question, back: f.answer })),
+        quiz: [] // Previous sessions before quiz feature won't have quizzes saved
+    };
+    
+    setContent(result);
+    setProcessingState({ status: 'completed' });
+    setIsHistoryOpen(false);
+    setActiveTab('diagram');
   };
   
   const exportFlashcards = () => {
@@ -251,21 +362,53 @@ const App: React.FC = () => {
     { id: DiagramType.GANTT, label: 'Gantt Chart', icon: CalendarRange },
   ];
 
+  const tabs = [
+    { id: 'upload', label: 'Upload', icon: Upload },
+    { id: 'diagram', label: 'Diagram', icon: GitBranch },
+    { id: 'summary', label: 'Summary', icon: BookOpen },
+    { id: 'flashcards', label: 'Flashcards', icon: Layers },
+    { id: 'quiz', label: 'Quiz Mode', icon: Gamepad2 },
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
+  ];
+
+  const hasInput = Boolean(inputText || extractedFileText);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-800">
-      
-      {/* Left Sidebar / Input Area */}
-      <div className="w-full md:w-[400px] bg-white border-r border-slate-200 flex flex-col h-screen overflow-hidden z-10 shadow-lg md:shadow-none">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-lg text-white">
-              <BrainCircuit size={24} />
-            </div>
-            <div>
-              <h1 className="font-bold text-xl text-slate-900 tracking-tight">StudySketch AI</h1>
-              <p className="text-xs text-slate-500 font-medium">Smart Visual Notes</p>
-            </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
+      {/* Top Persistent Status Bar */}
+      {ollamaRunning === false && (
+        <div className="bg-red-500 text-white text-center text-sm font-medium py-1.5 flex justify-center items-center gap-2">
+          ⚠️ Ollama not running — start with: ollama serve
+        </div>
+      )}
+      {ollamaRunning === true && (
+        <div className="bg-emerald-500 text-white text-center text-sm font-medium py-1.5 flex justify-center items-center gap-2">
+          🟢 Running 100% locally — no data leaves your machine
+        </div>
+      )}
+
+      {/* Navbar */}
+      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-indigo-600 p-2 rounded-lg text-white">
+            <BrainCircuit size={24} />
           </div>
+          <div>
+            <h1 className="font-bold text-xl text-slate-900 tracking-tight">StudySketch AI</h1>
+            <p className="text-xs text-slate-500 font-medium">Smart Visual Notes</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <ModelSwitcher key={activeModel} />
+          <span className="bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-full border border-slate-200 flex items-center gap-1.5">
+             🔒 Fully Offline
+          </span>
+          <button 
+            onClick={() => setIsHistoryOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 rounded-lg text-sm font-medium border border-slate-200 hover:border-indigo-200 transition-all shadow-sm"
+          >
+            <HistoryIcon size={16} /> History
+          </button>
           <button 
             onClick={() => setShowDocs(true)}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
@@ -274,279 +417,271 @@ const App: React.FC = () => {
             <Info size={20} />
           </button>
         </div>
+      </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          
-          {/* Arm Optimization Dashboard */}
-          <div className="bg-slate-900 rounded-xl p-4 text-white shadow-lg relative overflow-hidden group">
-             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-               <Cpu size={80} />
-             </div>
-             <div className="relative z-10">
-               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                  Device Status
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                  </span>
-               </h3>
-               <div className="flex items-center gap-2 mb-1">
-                 <Smartphone size={16} className="text-indigo-400" />
-                 <span className="font-mono text-sm">Arm64 / Android 14</span>
-               </div>
-               <div className="flex items-center gap-2 mb-3">
-                 <Zap size={16} className="text-yellow-400" />
-                 <span className="font-mono text-sm text-yellow-400 animate-pulse">NPU Active (NNAPI)</span>
-               </div>
-               <div className="text-[10px] bg-white/10 p-2 rounded border border-white/10 font-mono">
-                 Model: Quantized (Int8)<br/>
-                 Latency: 24ms<br/>
-                 Power: Efficient
-               </div>
-             </div>
-          </div>
-          
-          {/* Demo Button */}
-          <button
-            onClick={loadDemoData}
-            className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 border border-indigo-200"
-          >
-             <Play size={14} fill="currentColor" /> Load Demo Data
-          </button>
-
-          {/* File Upload Section */}
-          <section>
-            <h2 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-              Source Material
-            </h2>
-            <FileUpload 
-              onFileSelect={setSelectedFile} 
-              selectedFile={selectedFile} 
-            />
-          </section>
-
-          {/* Text Input Section */}
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                Notes / Paste Text
-              </h2>
-            </div>
-            <textarea 
-              className="w-full h-32 p-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-none"
-              placeholder="Paste your lecture notes, summaries, or text here..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-            />
-          </section>
-
-          {/* Configuration */}
-          <section>
-            <h2 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-              Visualization Style
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              {diagramTypes.map((type) => (
-                <button
-                  key={type.id}
-                  onClick={() => setSelectedType(type.id)}
-                  className={`
-                    flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all
-                    ${selectedType === type.id 
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm' 
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                    }
-                  `}
-                >
-                  <type.icon size={16} />
-                  {type.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <button
-            onClick={handleGenerate}
-            disabled={processingState.status === 'processing'}
-            className={`
-              w-full py-4 rounded-xl font-semibold text-white shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 transition-all
-              ${processingState.status === 'processing' 
-                ? 'bg-indigo-400 cursor-wait' 
-                : 'bg-indigo-600 hover:bg-indigo-700 hover:scale-[1.02] active:scale-[0.98]'
-              }
-            `}
-          >
-            {processingState.status === 'processing' ? (
-              <>
-                <RefreshCcw className="animate-spin" size={20} />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Sparkles size={20} />
-                Generate Visualization
-              </>
-            )}
-          </button>
-        </div>
+      {/* Tab Navigation */}
+      <div className="flex border-b border-slate-200 bg-white px-4 justify-center gap-2 pt-2">
+        {tabs.map(t => {
+           const isDisabled = t.id !== 'upload' && !hasInput;
+           return (
+             <button 
+               key={t.id}
+               onClick={() => {
+                 if (!isDisabled) setActiveTab(t.id as any);
+               }}
+               disabled={isDisabled}
+               className={`
+                 px-6 py-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors
+                 ${activeTab === t.id ? 'border-indigo-600 text-indigo-600' : 'border-transparent'}
+                 ${isDisabled ? 'text-slate-400 opacity-50 cursor-not-allowed' : 'text-slate-500 hover:text-slate-700 hover:border-slate-300'}
+               `}
+             >
+               <t.icon size={16}/> {t.label}
+             </button>
+           )
+        })}
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
-        
-        {/* Mobile Header */}
-        <div className="md:hidden p-4 bg-white border-b border-slate-200 flex justify-between items-center">
-          <span className="font-bold text-slate-900">StudySketch AI</span>
-          <span className="text-xs text-slate-500">Scroll down for output</span>
-        </div>
-
-        {processingState.status === 'idle' && !content ? (
-           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center opacity-60">
-             <div className="w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-500 mb-6">
-               <Layout size={48} />
+      <div className="flex-1 overflow-hidden relative flex flex-col p-4 md:p-8 max-w-6xl mx-auto w-full">
+         {/* Upload Tab */}
+         {activeTab === 'upload' && (
+           <div className="flex-1 flex flex-col md:flex-row gap-8 overflow-y-auto">
+             <div className="w-full md:w-1/2 flex flex-col gap-6">
+                <button
+                  onClick={loadDemoData}
+                  className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 border border-indigo-200"
+                >
+                   <Play size={16} fill="currentColor" /> Load Demo Data
+                </button>
+                <section>
+                  <h2 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Source Material
+                  </h2>
+                  <FileUpload 
+                    onFileProcessed={(name, text) => {
+                      setExtractedFileText(text);
+                      setCurrentFileName(name);
+                    }} 
+                    onClear={() => {
+                      setExtractedFileText('');
+                      setCurrentFileName('');
+                    }} 
+                  />
+                  <div className="flex items-center gap-4 my-6">
+                    <div className="flex-1 h-px bg-slate-200"></div>
+                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">or record your notes</span>
+                    <div className="flex-1 h-px bg-slate-200"></div>
+                  </div>
+                  <AudioRecorder 
+                    onTranscription={(text) => setExtractedFileText(prev => prev ? prev + '\n\n' + text : text)} 
+                  />
+                </section>
+                <section>
+                  <h2 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Notes / Paste Text
+                  </h2>
+                  <textarea 
+                    className="w-full h-40 p-4 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm resize-none shadow-sm"
+                    placeholder="Paste your lecture notes, summaries, or text here..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                  />
+                </section>
              </div>
-             <h2 className="text-2xl font-bold text-slate-800 mb-2">Ready to Visualize</h2>
-             <p className="max-w-md text-slate-500">Upload a document or paste your notes on the left to transform them into clear, interactive diagrams.</p>
+             <div className="w-full md:w-1/2 flex flex-col gap-6">
+                <section>
+                  <h2 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Visualization Style
+                  </h2>
+                  <div className="grid grid-cols-2 gap-3">
+                    {diagramTypes.map((type) => (
+                      <button
+                        key={type.id}
+                        onClick={() => setSelectedType(type.id)}
+                        className={`
+                          flex items-center gap-2 p-4 rounded-xl border text-sm font-medium transition-all
+                          ${selectedType === type.id 
+                            ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-600' 
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                          }
+                        `}
+                      >
+                        <type.icon size={18} /> {type.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <button
+                  onClick={handleGenerate}
+                  disabled={processingState.status === 'processing'}
+                  className={`
+                    w-full py-4 rounded-xl font-semibold text-white shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 transition-all mt-auto
+                    ${processingState.status === 'processing' 
+                      ? 'bg-indigo-400 cursor-wait' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 hover:scale-[1.02] active:scale-[0.98]'
+                    }
+                  `}
+                >
+                  {processingState.status === 'processing' ? (
+                    <>
+                      <RefreshCcw className="animate-spin" size={20} />
+                      Generating diagram locally...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={20} />
+                      {content ? 'Regenerate Compilation' : 'Generate Compilation'}
+                    </>
+                  )}
+                </button>
+                {processingState.status === 'error' && (
+                  <div className="text-red-600 text-sm font-medium bg-red-50 p-4 rounded-xl border border-red-200 text-center animate-in fade-in slide-in-from-bottom-2">
+                    Generation failed. Please try again.
+                  </div>
+                )}
+                <div className="flex items-center gap-4 my-2">
+                    <div className="flex-1 h-px bg-slate-200"></div>
+                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">or test yourself</span>
+                    <div className="flex-1 h-px bg-slate-200"></div>
+                </div>
+                <button
+                  onClick={handleGenerateQuiz}
+                  disabled={isGeneratingQuiz || processingState.status === 'processing'}
+                  className={`
+                    w-full py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2
+                    ${isGeneratingQuiz || processingState.status === 'processing'
+                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-wait' 
+                      : 'bg-white border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 shadow-sm'
+                    }
+                  `}
+                >
+                  {isGeneratingQuiz ? (
+                    <>
+                      <RefreshCcw className="animate-spin" size={20} />
+                      Generating quiz locally...
+                    </>
+                  ) : (
+                    <>
+                      <Gamepad2 size={20} />
+                      Generate Quiz
+                    </>
+                  )}
+                </button>
+             </div>
            </div>
-        ) : processingState.status === 'processing' ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-pulse">
-            <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6"></div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing your content</h3>
-            <p className="text-slate-500">{processingState.message}</p>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden p-4 gap-4">
-             {/* Visualization / Summary Area */}
-             <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-               {/* Tabs */}
-               <div className="flex border-b border-slate-100">
-                 <button 
-                  onClick={() => setActiveTab('diagram')}
-                  className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'diagram' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                 >
-                   <GitBranch size={16} /> Diagram
-                 </button>
-                 <button 
-                  onClick={() => setActiveTab('summary')}
-                  className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'summary' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                 >
-                   <BookOpen size={16} /> Summary
-                 </button>
-                 <button 
-                  onClick={() => setActiveTab('flashcards')}
-                  className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === 'flashcards' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                 >
-                   <Layers size={16} /> Flashcards
-                   {content?.flashcards?.length ? (
-                      <span className="bg-indigo-100 text-indigo-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                        {content.flashcards.length}
-                      </span>
-                   ) : null}
-                 </button>
-               </div>
+         )}
 
-               <div className="flex-1 relative overflow-hidden bg-slate-50/50">
-                 
-                 {/* Diagram Tab */}
-                 {activeTab === 'diagram' && content && (
-                   <div className="absolute inset-0 flex flex-col">
-                      <div className="absolute top-4 left-4 z-10">
-                        <button 
-                          onClick={() => setIsEditingDiagram(!isEditingDiagram)}
-                          className={`
-                            flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm border transition-all
-                            ${isEditingDiagram ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}
-                          `}
-                        >
-                           {isEditingDiagram ? <><Save size={14}/> View</> : <><Edit2 size={14}/> Edit Code</>}
-                        </button>
-                      </div>
-                      
-                      {isEditingDiagram ? (
-                        <div className="w-full h-full p-4 pt-16">
-                           <textarea
-                             value={currentDiagramCode}
-                             onChange={(e) => setCurrentDiagramCode(e.target.value)}
-                             className="w-full h-full p-4 font-mono text-sm bg-slate-900 text-slate-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                           />
-                        </div>
-                      ) : (
-                        <div className="w-full h-full p-4">
-                           <MermaidDiagram code={currentDiagramCode} />
-                        </div>
-                      )}
-                   </div>
-                 )}
+         {/* Shared Helper for empty AI generated states */}
+         {activeTab !== 'upload' && activeTab !== 'chat' && !content && processingState.status !== 'processing' && (
+           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
+             <div className="text-4xl mb-4">📄</div>
+             <h2 className="text-lg font-bold text-slate-700 mb-2">Upload a file first to use this feature ↑</h2>
+           </div>
+         )}
+         
+         {activeTab !== 'upload' && processingState.status === 'processing' && (
+           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-pulse">
+             <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6"></div>
+             <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing your content</h3>
+             <p className="text-slate-500">{processingState.message}</p>
+           </div>
+         )}
 
-                 {/* Summary Tab */}
-                 {activeTab === 'summary' && content && (
-                   <div className="absolute inset-0 p-8 overflow-y-auto">
-                     <article className="prose prose-slate prose-headings:text-indigo-900 prose-a:text-indigo-600 max-w-none">
-                       <ReactMarkdown>{content.summary}</ReactMarkdown>
-                     </article>
-                   </div>
-                 )}
+         {/* Diagram Tab */}
+         {activeTab === 'diagram' && content && (
+           <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+              <div className="absolute top-4 left-4 z-10">
+                <button 
+                  onClick={() => setIsEditingDiagram(!isEditingDiagram)}
+                  className={`
+                    flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm border transition-all
+                    ${isEditingDiagram ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}
+                  `}
+                >
+                   {isEditingDiagram ? <><Save size={14}/> View</> : <><Edit2 size={14}/> Edit Code</>}
+                </button>
+              </div>
+              
+              {isEditingDiagram ? (
+                <div className="w-full h-full p-4 pt-16">
+                   <textarea
+                     value={currentDiagramCode}
+                     onChange={(e) => setCurrentDiagramCode(e.target.value)}
+                     className="w-full h-full p-4 font-mono text-sm bg-slate-900 text-slate-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                   />
+                </div>
+              ) : (
+                <div className="w-full h-full p-4">
+                   <MermaidDiagram code={currentDiagramCode} />
+                </div>
+              )}
+           </div>
+         )}
 
-                 {/* Flashcards Tab */}
-                 {activeTab === 'flashcards' && content && content.flashcards && (
-                    <div className="absolute inset-0 flex flex-col">
-                      <div className="p-4 border-b border-slate-100 bg-white flex justify-between items-center">
-                        <h3 className="font-semibold text-slate-700">Study Cards ({content.flashcards.length})</h3>
-                        <button 
-                          onClick={exportFlashcards}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <Download size={14} /> Export CSV (Anki)
-                        </button>
-                      </div>
-                      <div className="flex-1 overflow-y-auto p-6">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                          {content.flashcards.map((card) => (
-                            <div 
-                              key={card.id}
-                              onClick={() => toggleCardFlip(card.id)}
-                              className="relative h-64 w-full perspective-1000 cursor-pointer group"
-                            >
-                              <div className={`
-                                relative w-full h-full transition-transform duration-500 transform-style-3d
-                                ${flippedCards[card.id] ? 'rotate-y-180' : ''}
-                              `}>
-                                {/* Front */}
-                                <div className="absolute inset-0 w-full h-full bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col items-center justify-center backface-hidden group-hover:shadow-md transition-shadow">
-                                  <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-4">Question</span>
-                                  <p className="text-center font-medium text-slate-800">{card.front}</p>
-                                  <div className="absolute bottom-4 text-slate-400">
-                                    <RotateCw size={16} />
-                                  </div>
-                                </div>
-                                {/* Back */}
-                                <div className="absolute inset-0 w-full h-full bg-indigo-600 rounded-2xl shadow-sm p-6 flex flex-col items-center justify-center backface-hidden rotate-y-180 text-white">
-                                  <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider mb-4">Answer</span>
-                                  <p className="text-center font-medium">{card.back}</p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                 )}
-               </div>
+         {/* Summary Tab */}
+         {activeTab === 'summary' && content && (
+           <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+             <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-2">
+               {['oneLiner', 'paragraph', 'keyPoints'].map((tab) => (
+                 <button
+                   key={tab}
+                   onClick={() => setSummaryTab(tab as any)}
+                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                     summaryTab === tab
+                       ? 'bg-white shadow-sm border border-slate-200 text-indigo-700'
+                       : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                   }`}
+                 >
+                   {tab === 'oneLiner' ? 'One-liner' : tab === 'paragraph' ? 'Paragraph' : 'Key Points'}
+                 </button>
+               ))}
              </div>
-
-             {/* Right Side Chat */}
-             <div className="h-[300px] md:h-full md:w-80 lg:w-96 flex-shrink-0">
-               <ChatPanel 
-                 messages={chatMessages} 
-                 onSendMessage={handleSendMessage}
-                 isLoading={isChatLoading}
-               />
+             <div className="flex-1 overflow-y-auto p-8 relative group">
+               <button
+                 onClick={() => copyToClipboard(content.summary[summaryTab])}
+                 className="absolute top-6 right-6 p-2 text-slate-400 hover:text-indigo-600 bg-white border border-slate-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                 title="Copy to clipboard"
+               >
+                 <Copy size={16} />
+               </button>
+               <article className="prose prose-slate prose-headings:text-indigo-900 prose-a:text-indigo-600 max-w-none">
+                 <ReactMarkdown>{content.summary[summaryTab]}</ReactMarkdown>
+               </article>
              </div>
-          </div>
-        )}
+           </div>
+         )}
+
+         {/* Flashcards Tab */}
+         {activeTab === 'flashcards' && content && content.flashcards && (
+            <Flashcards cards={content.flashcards} onExport={exportFlashcards} />
+         )}
+
+         {/* Quiz Tab */}
+         {activeTab === 'quiz' && content && content.quiz && (
+            <QuizMode questions={content.quiz} onRetry={handleGenerateQuiz} />
+         )}
+         
+         {/* Chat Tab */}
+         {activeTab === 'chat' && (
+           <div className="flex-1 flex flex-col overflow-hidden max-w-4xl mx-auto w-full">
+             {!hasInput ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                  <div className="text-4xl mb-4">📄</div>
+                  <h2 className="text-lg font-bold text-slate-700 mb-2">Upload a file first to use this feature ↑</h2>
+                  <p className="text-sm">We need context material to chat about.</p>
+                </div>
+             ) : (
+                <ChatPanel 
+                  messages={chatMessages} 
+                  onSendMessage={handleSendMessage}
+                  isLoading={isChatLoading}
+                  extractedText={extractedFileText || inputText || null}
+                  onClearChat={() => setChatMessages([])}
+                />
+             )}
+           </div>
+         )}
       </div>
 
       {/* Docs Modal */}
@@ -570,6 +705,30 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Session History Drawer */}
+      <SessionHistory 
+        isOpen={isHistoryOpen} 
+        onClose={() => setIsHistoryOpen(false)} 
+        onLoadSession={handleLoadSession} 
+      />
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {showToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 border border-slate-800"
+          >
+            <div className="bg-emerald-500 rounded-full p-1">
+              <CheckCircle size={14} />
+            </div>
+            <span className="text-sm font-medium">Session saved to history ✓</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

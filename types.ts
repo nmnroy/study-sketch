@@ -25,11 +25,25 @@ export interface Flashcard {
   back: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface SummaryData {
+  oneLiner: string;
+  paragraph: string;
+  keyPoints: string;
+}
+
 export interface GeneratedContent {
   diagramCode: string;
-  summary: string;
+  summary: SummaryData;
   diagramType: DiagramType;
   flashcards: Flashcard[];
+  quiz?: QuizQuestion[];
 }
 
 export interface FileData {
