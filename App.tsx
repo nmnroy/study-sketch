@@ -148,6 +148,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initAI = async () => {
+      // Check window flag first — survives hot reloads
+      if ((window as any).__studysketch_ai_ready === true) {
+        setAiReady(true);
+        setLoadingProgress(100);
+        return;
+      }
+
       if (!isAIReady()) {
         try {
           await initializeAI((progress) => {
@@ -214,9 +221,20 @@ const App: React.FC = () => {
       setShowToast(true);
       setTimeout(() => setShowToast(false), 3000);
 
-    } catch (error) {
-      setProcessingState({ status: 'error', message: 'Generation failed. Please try again.' });
-      console.error(error);
+    } catch (error: any) {
+      const msg = error?.message || 'Unknown error';
+      if (msg.includes('timed out') || msg.includes('Timed out')) {
+        setProcessingState({ 
+          status: 'error', 
+          message: 'Generation timed out. Try with shorter text or reload the page.' 
+        });
+      } else {
+        setProcessingState({ 
+          status: 'error', 
+          message: `Generation failed: ${msg}` 
+        });
+      }
+      console.error('[StudySketch] Generation error:', error);
     }
   };
   
@@ -668,6 +686,19 @@ const App: React.FC = () => {
          )}
 
          {/* Quiz Tab */}
+         {activeTab === 'quiz' && content && !content.quiz && processingState.status !== 'processing' && (
+           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white rounded-2xl shadow-sm border border-slate-200">
+             <div className="text-4xl mb-4">🎮</div>
+             <h2 className="text-xl font-bold text-slate-700 mb-4">Ready to test your knowledge?</h2>
+             <button
+                onClick={handleGenerateQuiz}
+                disabled={isGeneratingQuiz}
+                className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-md"
+             >
+                Generate Quiz
+             </button>
+           </div>
+         )}
          {activeTab === 'quiz' && content && content.quiz && (
             <QuizMode questions={content.quiz} onRetry={handleGenerateQuiz} />
          )}

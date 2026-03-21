@@ -1,9 +1,20 @@
 import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'node_modules/@runanywhere/web-llamacpp/wasm/*.wasm',
+          dest: 'assets'
+        }
+      ]
+    })
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
@@ -14,7 +25,7 @@ export default defineConfig({
     host: '0.0.0.0',
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
       'Cross-Origin-Resource-Policy': 'cross-origin',
     },
     fs: {
@@ -24,7 +35,7 @@ export default defineConfig({
   preview: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
       'Cross-Origin-Resource-Policy': 'cross-origin',
     }
   },
