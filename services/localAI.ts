@@ -6,107 +6,166 @@ let llm: any = null;
 
 export async function initializeAI(onProgress?: (p: number) => void): Promise<void> {
   console.log('[StudySketch] initializeAI called');
+
+  // If already initialized in this browser session, skip entirely
+  if ((window as any).__studysketch_ai_ready === true) {
+    console.log('[StudySketch] AI already initialized, skipping...');
+    ready = true;
+    if (onProgress) onProgress(100);
+    return;
+  }
+
+  // If initialization is already in progress, wait for it
+  if ((window as any).__studysketch_ai_loading === true) {
+    console.log('[StudySketch] AI initialization in progress, waiting...');
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if ((window as any).__studysketch_ai_ready === true) {
+          clearInterval(interval);
+          ready = true;
+          if (onProgress) onProgress(100);
+          resolve();
+        }
+      }, 500);
+    });
+    return;
+  }
+
+  (window as any).__studysketch_ai_loading = true;
+
   try {
-    // Log every step so we can see exactly where it fails
-    console.log('[StudySketch] Step 1: importing RunAnywhere...');
-    const { RunAnywhere } = await import('@runanywhere/web');
-    
-    console.log('[StudySketch] Step 2: calling RunAnywhere.initialize()...');
-    console.log('[StudySketch] RunAnywhere object keys:', Object.keys(RunAnywhere));
-    
-    await RunAnywhere.initialize();
-    console.log('[StudySketch] RunAnywhere initialized successfully');
-    
-    console.log('[StudySketch] Step 3: importing LlamaCPP...');
+    const { RunAnywhere, SDKEnvironment, LLMFramework, ModelCategory } = await import('@runanywhere/web');
     const { LlamaCPP } = await import('@runanywhere/web-llamacpp');
-    console.log('[StudySketch] LlamaCPP object keys:', Object.keys(LlamaCPP));
-    
-    console.log('[StudySketch] Step 4: registering LlamaCPP backend...');
+
+    console.log('[StudySketch] Step 1: initializing RunAnywhere...');
+    await RunAnywhere.initialize({ environment: SDKEnvironment.Development, debug: true });
+    console.log('[StudySketch] RunAnywhere initialized');
+
+    console.log('[StudySketch] Step 2: registering LlamaCPP backend...');
     await LlamaCPP.register();
-    console.log('[StudySketch] LlamaCPP registered successfully');
-    
-    console.log('[StudySketch] Step 5: importing TextGeneration...');
-    const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-    console.log('[StudySketch] TextGeneration object keys:', Object.keys(TextGeneration));
-    console.log('[StudySketch] TextGeneration type:', typeof TextGeneration);
-    
-    console.log('[StudySketch] Step 6: checking TextGeneration methods...');
-    console.log('[StudySketch] TextGeneration methods:', Object.getOwnPropertyNames(TextGeneration));
-    console.log('[StudySketch] TextGeneration prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(TextGeneration)));
-    
-    console.log('[StudySketch] Step 7: checking what RunAnywhere methods we can use...');
-    console.log('[StudySketch] RunAnywhere methods:', Object.getOwnPropertyNames(RunAnywhere));
-    console.log('[StudySketch] RunAnywhere prototype:', Object.getOwnPropertyNames(Object.getPrototypeOf(RunAnywhere)));
-    
-    // Try to use TextGeneration directly without model loading first
-    // Maybe the SDK handles model loading internally
-    console.log('[StudySketch] Step 8: trying TextGeneration without explicit model loading...');
-    
-    try {
-      // Try a simple generation to see what happens
-      const testResult = await TextGeneration.generate('Hello', { maxTokens: 10 });
-      console.log('[StudySketch] Test generation successful:', testResult);
-      ready = true;
-      console.log('[StudySketch] AI ready! (TextGeneration works without explicit model loading)');
-    } catch (testErr) {
-      console.log('[StudySketch] Test generation failed:', (testErr as any)?.message);
-      
-      // If that fails, try to use RunAnywhere's model management
-      console.log('[StudySketch] Step 9: trying RunAnywhere model management...');
-      
-      try {
-        // Check if we can register models
-        console.log('[StudySketch] Available models before:', RunAnywhere.availableModels());
-        
-        // Try to download/load a model using the basic approach
-        await RunAnywhere.downloadModel('tinyllama-1.1b');
-        console.log('[StudySketch] Model download completed');
-        
-        await RunAnywhere.loadModel('tinyllama-1.1b');
-        console.log('[StudySketch] Model loaded successfully!');
-        
-        ready = true;
-        console.log('[StudySketch] AI ready!');
-      } catch (modelErr) {
-        console.log('[StudySketch] Model loading also failed:', (modelErr as any)?.message);
-        throw new Error('Both direct generation and model loading failed');
+    console.log('[StudySketch] LlamaCPP registered');
+
+    console.log('[StudySketch] Step 3: registering model catalog...');
+    RunAnywhere.registerModels([
+      {
+        id: 'tinyllama-1.1b',
+        name: 'TinyLlama 1.1B',
+        repo: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF',
+        files: ['tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'],
+        framework: LLMFramework.LlamaCpp,
+        modality: ModelCategory.Language
       }
-    }
-    
-    if (onProgress) {
-      onProgress(100);
-    }
+    ]);
+    console.log('[StudySketch] Model registered');
+
+    console.log('[StudySketch] Step 4: subscribing to download progress...');
+    RunAnywhere.events.on('model.downloadProgress', (data: any) => {
+      if (data.modelId === 'tinyllama-1.1b') {
+        const pct = Math.round(data.progress * 100);
+        progress = pct;
+        if (onProgress) onProgress(pct);
+        console.log(`[StudySketch] Download progress: ${pct}%`);
+      }
+    });
+
+    console.log('[StudySketch] Step 5: downloading model...');
+    await RunAnywhere.downloadModel('tinyllama-1.1b');
+    console.log('[StudySketch] Model downloaded');
+
+    console.log('[StudySketch] Step 6: loading model...');
+    await RunAnywhere.loadModel('tinyllama-1.1b');
+    console.log('[StudySketch] Model loaded and ready!');
+
+    ready = true;
+    if (onProgress) onProgress(100);
+    (window as any).__studysketch_ai_ready = true;
+    (window as any).__studysketch_ai_loading = false;
   } catch (err) {
     console.error('[StudySketch] FULL ERROR:', err);
-    console.error('[StudySketch] Error message:', (err as any)?.message);
-    console.error('[StudySketch] Error stack:', (err as any)?.stack);
+    console.error('[StudySketch] Message:', (err as any)?.message);
+    console.error('[StudySketch] Stack:', (err as any)?.stack);
     ready = false;
+    throw err;
   }
 }
 
-async function runPrompt(prompt: string): Promise<string> {
-  if (!ready) {
-    throw new Error('AI not ready. Please wait for model to load.');
-  }
-  
-  console.log('[StudySketch] runPrompt called, ready:', ready);
-  
-  // Try different generation methods
+async function ensureModelReady(): Promise<void> {
+  const { RunAnywhere, SDKEnvironment, LLMFramework, ModelCategory } = await import('@runanywhere/web');
+  const { LlamaCPP } = await import('@runanywhere/web-llamacpp');
+
+  // Step 1: initialize SDK
   try {
-    console.log('[StudySketch] Step 1: importing TextGeneration...');
-    const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-    
-    console.log('[StudySketch] Step 2: attempting TextGeneration.generate()...');
-    const result = await TextGeneration.generate(prompt, {
-      maxTokens: 1024,
-    });
-    
-    console.log('[StudySketch] Generation successful, result keys:', Object.keys(result));
-    return result.text;
-  } catch (err) {
-    console.error('[StudySketch] Generation error:', err);
-    throw err;
+    await RunAnywhere.initialize({ environment: SDKEnvironment.Development, debug: false });
+  } catch (e) {
+    // already initialized, ignore
   }
+
+  // Step 2: register backend
+  try {
+    await LlamaCPP.register();
+  } catch (e) {
+    // already registered, ignore
+  }
+
+  // Step 3: register model
+  try {
+    RunAnywhere.registerModels([
+      {
+        id: 'tinyllama-1.1b',
+        name: 'TinyLlama 1.1B',
+        repo: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF',
+        files: ['tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'],
+        framework: LLMFramework.LlamaCpp,
+        modality: ModelCategory.Language
+      }
+    ]);
+  } catch (e) {
+    // already registered, ignore
+  }
+
+  // Step 4: download if needed
+  try {
+    await RunAnywhere.downloadModel('tinyllama-1.1b');
+  } catch (e) {
+    // already downloaded, ignore
+  }
+
+  // Step 5: load into memory - this is the critical step
+  await RunAnywhere.loadModel('tinyllama-1.1b');
+}
+
+async function runPrompt(prompt: string): Promise<string> {
+  await ensureModelReady();
+
+  const { TextGeneration } = await import('@runanywhere/web-llamacpp');
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Generation timed out after 120s')), 120000)
+  );
+  const generatePromise = TextGeneration.generate(prompt, {
+    maxTokens: 512,
+    temperature: 0.7,
+    systemPrompt: 'You are a helpful study assistant. Be concise.'
+  });
+  const result = await Promise.race([generatePromise, timeoutPromise]);
+  return result.text;
+}
+
+async function runPromptShort(prompt: string): Promise<string> {
+  await ensureModelReady();
+
+  const { TextGeneration } = await import('@runanywhere/web-llamacpp');
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Generation timed out after 90s')), 90000)
+  );
+  const generatePromise = TextGeneration.generate(prompt, {
+    maxTokens: 256,
+    temperature: 0.3,
+    systemPrompt: 'You are a diagram generator. Return only Mermaid syntax.'
+  });
+  const result = await Promise.race([generatePromise, timeoutPromise]);
+  return result.text;
 }
 
 export function isAIReady(): boolean { 
@@ -125,14 +184,14 @@ export const generateDiagramAndSummary = async (
   type: DiagramType,
   onProgress?: (message: string) => void
 ): Promise<GeneratedContent> => {
-  const truncatedText = input.substring(0, 3000);
+  const truncatedText = input.substring(0, 1500);
   if (onProgress) onProgress('Generating diagram locally...');
   const diagramPrompt = `Analyze the following text and generate a Mermaid.js diagram.
 Return ONLY valid Mermaid syntax, no explanation, no markdown fences, no backticks.
 Use mindmap or flowchart TD format. Max 20 nodes.
 Text: ${truncatedText}`;
 
-  const rawDiagram = await runPrompt(diagramPrompt);
+  const rawDiagram = await runPromptShort(diagramPrompt);
   
   // Sanitize common AI Mermaid mistakes
   let diagram = rawDiagram.trim();
@@ -167,9 +226,18 @@ Text: ${truncatedText}`;
   const keyPoints = await runPrompt(keyPointsPrompt);
 
   if (onProgress) onProgress('Step 3 of 3: Generating flashcards...');
-  const flashcardsPrompt = `Generate exactly 8 question-answer flashcard pairs from this text.
-Return ONLY a valid JSON array, no markdown, no explanation, no extra text:
-[{"question": "...", "answer": "..."}]
+  const flashcardsPrompt = `Generate exactly 8 separate question-answer flashcard pairs from this text. You MUST generate all 8 pairs.
+Return ONLY a valid JSON array containing exactly 8 objects. No markdown formatting, no code blocks, no explanation:
+[
+  {"question": "Q1", "answer": "A1"},
+  {"question": "Q2", "answer": "A2"},
+  {"question": "Q3", "answer": "A3"},
+  {"question": "Q4", "answer": "A4"},
+  {"question": "Q5", "answer": "A5"},
+  {"question": "Q6", "answer": "A6"},
+  {"question": "Q7", "answer": "A7"},
+  {"question": "Q8", "answer": "A8"}
+]
 Text: ${truncatedText}`;
   const rawFlashcards = await runPrompt(flashcardsPrompt);
 
