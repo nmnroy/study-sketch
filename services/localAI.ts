@@ -1,348 +1,260 @@
 import { DiagramType, GeneratedContent, FileData, Message, Flashcard, QuizQuestion } from '../types';
+import { RunAnywhere, SDKEnvironment, ModelCategory, LLMFramework, ModelManager, ModelStatus } from '@runanywhere/web';
+import { LlamaCPP, TextGeneration } from '@runanywhere/web-llamacpp';
 
 let ready = false;
 let progress = 0;
-let llm: any = null;
+const MODEL_ID = 'tinyllama-1.1b';
+const MODEL_URL = 'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
 
 export async function initializeAI(onProgress?: (p: number) => void): Promise<void> {
   console.log('[StudySketch] initializeAI called');
-
-  // If already initialized in this browser session, skip entirely
-  if ((window as any).__studysketch_ai_ready === true) {
-    console.log('[StudySketch] AI already initialized, skipping...');
-    ready = true;
-    if (onProgress) onProgress(100);
-    return;
-  }
-
-  // If initialization is already in progress, wait for it
-  if ((window as any).__studysketch_ai_loading === true) {
-    console.log('[StudySketch] AI initialization in progress, waiting...');
-    await new Promise<void>((resolve) => {
-      const interval = setInterval(() => {
-        if ((window as any).__studysketch_ai_ready === true) {
-          clearInterval(interval);
-          ready = true;
-          if (onProgress) onProgress(100);
-          resolve();
-        }
-      }, 500);
-    });
-    return;
-  }
-
-  (window as any).__studysketch_ai_loading = true;
-
   try {
-    const { RunAnywhere, SDKEnvironment, LLMFramework, ModelCategory } = await import('@runanywhere/web');
-    const { LlamaCPP } = await import('@runanywhere/web-llamacpp');
-
-    console.log('[StudySketch] Step 1: initializing RunAnywhere...');
-    await RunAnywhere.initialize({ environment: SDKEnvironment.Development, debug: true });
+    await RunAnywhere.initialize({
+      apiKey: 'sk-Ik3KHBQXKTxEhklUKLXEyg',
+      environment: SDKEnvironment.Development,
+    });
     console.log('[StudySketch] RunAnywhere initialized');
 
-    console.log('[StudySketch] Step 2: registering LlamaCPP backend...');
     await LlamaCPP.register();
     console.log('[StudySketch] LlamaCPP registered');
+    onProgress?.(5);
 
-    console.log('[StudySketch] Step 3: registering model catalog...');
-    RunAnywhere.registerModels([
-      {
-        id: 'tinyllama-1.1b',
-        name: 'TinyLlama 1.1B',
-        repo: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF',
-        files: ['tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'],
-        framework: LLMFramework.LlamaCpp,
-        modality: ModelCategory.Language
-      }
-    ]);
-    console.log('[StudySketch] Model registered');
+    RunAnywhere.registerModels([{
+      id: MODEL_ID,
+      name: 'TinyLlama 1.1B',
+      url: MODEL_URL,
+      framework: LLMFramework.LlamaCpp,
+      modality: 'LLM' as any,
+    }]);
 
-    console.log('[StudySketch] Step 4: subscribing to download progress...');
-    RunAnywhere.events.on('model.downloadProgress', (data: any) => {
-      if (data.modelId === 'tinyllama-1.1b') {
-        const pct = Math.round(data.progress * 100);
-        progress = pct;
-        if (onProgress) onProgress(pct);
-        console.log(`[StudySketch] Download progress: ${pct}%`);
-      }
-    });
+    // CHECK IF ALREADY DOWNLOADED — skip download if cached
+    const runAnywhereModels = RunAnywhere.availableModels();
+    const managedModels = ModelManager.getModels();
+    
+    console.log('[StudySketch] RunAnywhere models:', runAnywhereModels.length);
+    console.log('[StudySketch] ModelManager models:', managedModels.length);
+    
+    const model = runAnywhereModels.find((m: any) => m.id === MODEL_ID) || 
+                  managedModels.find((m: any) => m.id === MODEL_ID);
+    
+    const status = model?.status;
+    const statusStr = status?.toString() || '';
+    const alreadyDownloaded = model && (
+      statusStr.includes('downloaded') ||
+      statusStr.includes('loaded') ||
+      statusStr.includes('Downloaded') ||
+      statusStr.includes('Loaded') ||
+      (model as any).isDownloaded ||
+      (model as any).isLoaded ||
+      ((model as any).downloadProgress !== undefined && (model as any).downloadProgress >= 1.0)
+    );
+    
+    console.log('[StudySketch] Model found:', !!model, 'status:', status, 'already downloaded:', alreadyDownloaded);
 
-    console.log('[StudySketch] Step 5: downloading model...');
-    await RunAnywhere.downloadModel('tinyllama-1.1b');
-    console.log('[StudySketch] Model downloaded');
+    if (!alreadyDownloaded) {
+      console.log('[StudySketch] Downloading model (first time)...');
+      
+      const unsub = ModelManager.onChange((models: any[]) => {
+        const m = models.find((x: any) => x.id === MODEL_ID);
+        if (m?.downloadProgress) {
+          const raw = m.downloadProgress;
+          const fraction = typeof raw === 'number' ? raw : (raw?.progress ?? raw?.fraction ?? 0);
+          const p = Math.round(fraction * 80) + 10;
+          progress = p;
+          onProgress?.(p);
+          console.log('[StudySketch] Download:', p + '%');
+        }
+      });
 
-    console.log('[StudySketch] Step 6: loading model...');
-    await RunAnywhere.loadModel('tinyllama-1.1b');
-    console.log('[StudySketch] Model loaded and ready!');
+      await RunAnywhere.downloadModel(MODEL_ID);
+      unsub();
+      console.log('[StudySketch] Download complete');
+    } else {
+      console.log('[StudySketch] Model already cached, skipping download!');
+    }
+
+    onProgress?.(90);
+    const success = await RunAnywhere.loadModel(MODEL_ID);
+    console.log('[StudySketch] loadModel:', success, 'isModelLoaded:', TextGeneration.isModelLoaded);
+
+    if (!TextGeneration.isModelLoaded) throw new Error('Model not loaded');
 
     ready = true;
-    if (onProgress) onProgress(100);
-    (window as any).__studysketch_ai_ready = true;
-    (window as any).__studysketch_ai_loading = false;
+    console.log('[StudySketch] AI READY!');
+    onProgress?.(100);
   } catch (err) {
-    console.error('[StudySketch] FULL ERROR:', err);
-    console.error('[StudySketch] Message:', (err as any)?.message);
-    console.error('[StudySketch] Stack:', (err as any)?.stack);
+    console.error('[StudySketch] Init failed:', (err as any)?.message ?? err);
     ready = false;
-    throw err;
   }
 }
 
-async function ensureModelReady(): Promise<void> {
-  const { RunAnywhere, SDKEnvironment, LLMFramework, ModelCategory } = await import('@runanywhere/web');
-  const { LlamaCPP } = await import('@runanywhere/web-llamacpp');
-
-  // Step 1: initialize SDK
-  try {
-    await RunAnywhere.initialize({ environment: SDKEnvironment.Development, debug: false });
-  } catch (e) {
-    // already initialized, ignore
-  }
-
-  // Step 2: register backend
-  try {
-    await LlamaCPP.register();
-  } catch (e) {
-    // already registered, ignore
-  }
-
-  // Step 3: register model
-  try {
-    RunAnywhere.registerModels([
-      {
-        id: 'tinyllama-1.1b',
-        name: 'TinyLlama 1.1B',
-        repo: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF',
-        files: ['tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'],
-        framework: LLMFramework.LlamaCpp,
-        modality: ModelCategory.Language
-      }
-    ]);
-  } catch (e) {
-    // already registered, ignore
-  }
-
-  // Step 4: download if needed
-  try {
-    await RunAnywhere.downloadModel('tinyllama-1.1b');
-  } catch (e) {
-    // already downloaded, ignore
-  }
-
-  // Step 5: load into memory - this is the critical step
-  await RunAnywhere.loadModel('tinyllama-1.1b');
+async function generate(prompt: string, maxTokens = 250): Promise<string> {
+  if (!ready) throw new Error('AI not ready');
+  // Use generate() directly — generateStream tokens property is unreliable
+  const result = await TextGeneration.generate(prompt, { maxTokens });
+  return result.text?.trim() ?? '';
 }
 
-async function runPrompt(prompt: string): Promise<string> {
-  await ensureModelReady();
-
-  const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Generation timed out after 120s')), 120000)
-  );
-  const generatePromise = TextGeneration.generate(prompt, {
-    maxTokens: 512,
-    temperature: 0.7,
-    systemPrompt: 'You are a helpful study assistant. Be concise.'
-  });
-  const result = await Promise.race([generatePromise, timeoutPromise]);
-  return result.text;
-}
-
-async function runPromptShort(prompt: string): Promise<string> {
-  await ensureModelReady();
-
-  const { TextGeneration } = await import('@runanywhere/web-llamacpp');
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Generation timed out after 90s')), 90000)
-  );
-  const generatePromise = TextGeneration.generate(prompt, {
-    maxTokens: 256,
-    temperature: 0.3,
-    systemPrompt: 'You are a diagram generator. Return only Mermaid syntax.'
-  });
-  const result = await Promise.race([generatePromise, timeoutPromise]);
-  return result.text;
-}
-
-export function isAIReady(): boolean { 
-  console.log('[StudySketch] isAIReady called, returning:', ready);
-  return ready; 
-}
-
+export function isAIReady(): boolean { return ready; }
 export function getLoadingProgress(): number { return progress; }
 
-/**
- * Generate a Mermaid diagram from input text using AI.
- */
 export const generateDiagramAndSummary = async (
   input: string,
   _file: FileData | null,
   type: DiagramType,
   onProgress?: (message: string) => void
 ): Promise<GeneratedContent> => {
-  const truncatedText = input.substring(0, 1500);
-  if (onProgress) onProgress('Generating diagram locally...');
-  const diagramPrompt = `Analyze the following text and generate a Mermaid.js diagram.
-Return ONLY valid Mermaid syntax, no explanation, no markdown fences, no backticks.
-Use mindmap or flowchart TD format. Max 20 nodes.
-Text: ${truncatedText}`;
+  const text = input.substring(0, 800);
+  
+  if (onProgress) onProgress('Generating study materials...');
 
-  const rawDiagram = await runPromptShort(diagramPrompt);
-  
-  // Sanitize common AI Mermaid mistakes
-  let diagram = rawDiagram.trim();
-  
-  // Remove markdown code fences if present
-  diagram = diagram.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '');
-  
-  // Fix arrow syntax: --> should be -->
-  diagram = diagram.replace(/-->/g, '-->');
-  
-  // Fix arrow syntax: ==> should be ==>  
-  diagram = diagram.replace(/==>/g, '==>');
-  
-  // Remove style lines that cause parse errors in strict mode
-  diagram = diagram.replace(/^\s*style\s+.+$/gm, '');
-  
-  // Remove classDef lines if causing issues
-  diagram = diagram.replace(/^\s*classDef\s+.+$/gm, '');
-  
-  const cleanDiagram = diagram.trim();
+  // SINGLE PROMPT — generate everything at once to reduce lag
+  const combinedPrompt = `Generate a complete study compilation from this text.
 
-  if (onProgress) onProgress('Step 1 of 3: Generating one-liner...');
-  const oneLinerPrompt = `Summarize this text in exactly one sentence. Return plain text only, no extra formatting.\nText: ${truncatedText}`;
-  const oneLiner = await runPrompt(oneLinerPrompt);
+Text: ${text}
 
-  if (onProgress) onProgress('Step 2 of 3: Generating paragraph...');
-  const paragraphPrompt = `Write a 4 to 5 sentence summary of this text. Return plain text only.\nText: ${truncatedText}`;
-  const paragraph = await runPrompt(paragraphPrompt);
-
-  if (onProgress) onProgress('Generating key points...');
-  const keyPointsPrompt = `Extract 5 to 7 key points from this text as a bulleted list. Return plain text only.\nText: ${truncatedText}`;
-  const keyPoints = await runPrompt(keyPointsPrompt);
-
-  if (onProgress) onProgress('Step 3 of 3: Generating flashcards...');
-  const flashcardsPrompt = `Generate exactly 8 separate question-answer flashcard pairs from this text. You MUST generate all 8 pairs.
-Return ONLY a valid JSON array containing exactly 8 objects. No markdown formatting, no code blocks, no explanation:
-[
-  {"question": "Q1", "answer": "A1"},
-  {"question": "Q2", "answer": "A2"},
-  {"question": "Q3", "answer": "A3"},
-  {"question": "Q4", "answer": "A4"},
-  {"question": "Q5", "answer": "A5"},
-  {"question": "Q6", "answer": "A6"},
-  {"question": "Q7", "answer": "A7"},
-  {"question": "Q8", "answer": "A8"}
-]
-Text: ${truncatedText}`;
-  const rawFlashcards = await runPrompt(flashcardsPrompt);
-
-  let flashcardsJson: any[] = [];
-  try {
-    flashcardsJson = JSON.parse(rawFlashcards);
-  } catch {
-    const match = rawFlashcards.match(/\[[\s\S]*\]/);
-    if (match) {
-      try {
-        flashcardsJson = JSON.parse(match[0]);
-      } catch (err) {
-        throw new Error('Failed to parse flashcards');
-      }
-    } else {
-      throw new Error('Failed to parse flashcards');
+Return ONLY this exact JSON structure, no other text:
+{
+  "diagram": "mindmap\\n  root((topic))\\n    Point1\\n      Detail1\\n    Point2\\n      Detail2",
+  "oneLiner": "One sentence summary",
+  "paragraph": "Three sentence summary", 
+  "keyPoints": "- Point 1\\n- Point 2\\n- Point 3",
+  "flashcards": [
+    {"question": "Q1", "answer": "A1"},
+    {"question": "Q2", "answer": "A2"},
+    {"question": "Q3", "answer": "A3"},
+    {"question": "Q4", "answer": "A4"},
+    {"question": "Q5", "answer": "A5"}
+  ],
+  "quiz": [
+    {
+      "question": "Question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0
     }
+  ]
+}
+
+CRITICAL REQUIREMENTS:
+- Diagram: MUST start with EXACTLY "mindmap" (no quotes, no extra text)
+- Use simple indentation with 2 spaces per level
+- NO backticks, NO explanations, NO extra text
+- Keep responses concise and focused
+- Use ONLY the JSON structure above`;
+
+  const result = await generate(combinedPrompt, 500);
+  
+  // Parse JSON response
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(result);
+  } catch (e) {
+    console.log('[StudySketch] JSON parse failed, using fallback:', e);
+    // Fallback responses
+    parsed = {
+      diagram: `mindmap\n  root((${text.split(' ').slice(0, 3).join(' ')}))\n    Key Points\n      Details\n    Summary\n      Overview`,
+      oneLiner: text.split('.')[0] + '.',
+      paragraph: text.substring(0, 200) + '...',
+      keyPoints: '- ' + text.split('.').slice(0, 3).join('.\n- ') + '.',
+      flashcards: [
+        { question: 'What is the main topic?', answer: text.split(' ').slice(0, 5).join(' ') },
+        { question: 'Key concept?', answer: 'Important information from text' }
+      ],
+      quiz: [{
+        question: 'What is this about?',
+        options: ['Topic A', 'Topic B', 'Topic C', 'Topic D'],
+        correctIndex: 0
+      }]
+    };
   }
 
-  const flashcards: Flashcard[] = flashcardsJson.map((card: any, index: number) => ({
-    id: `fc-${Date.now()}-${index}`,
-    front: card.question || card.front || 'Question',
-    back: card.answer || card.back || 'Answer',
+  // Format diagram with strict validation
+  let diagram = parsed.diagram || '';
+  
+  // Validate diagram starts with mindmap
+  if (!diagram.trim().startsWith('mindmap')) {
+    console.log('[StudySketch] Invalid diagram format, using fallback');
+    diagram = `mindmap\n  root((${text.split(' ').slice(0, 3).join(' ')}))\n    Key Points\n      Important Details\n    Summary\n      Main Ideas`;
+  }
+  
+  diagram = diagram.trim()
+    .replace(/```mermaid\n?/g, '').replace(/```\n?/g, '')
+    .replace(/["']/g, '')
+    .replace(/^\s*style\s+.+$/gm, '').replace(/^\s*classDef\s+.+$/gm, '');
+
+  // Format flashcards
+  const flashcards: Flashcard[] = (parsed.flashcards || []).map((fc: any, i: number) => ({
+    id: `fc-${Date.now()}-${i}`,
+    front: fc.question || `Question ${i + 1}`,
+    back: fc.answer || `Answer ${i + 1}`,
+  }));
+
+  // Format quiz
+  const quiz: QuizQuestion[] = (parsed.quiz || []).map((q: any) => ({
+    question: q.question || 'Question',
+    options: q.options || ['A', 'B', 'C', 'D'],
+    correctIndex: q.correctIndex || 0,
+    explanation: q.explanation || '',
   }));
 
   return {
-    summary: { oneLiner, paragraph, keyPoints },
-    diagramCode: cleanDiagram || `graph TD\n  A["Error"] --> B["Failed to generate valid Mermaid syntax"]`,
+    summary: {
+      oneLiner: parsed.oneLiner || 'Summary unavailable',
+      paragraph: parsed.paragraph || 'Paragraph unavailable',
+      keyPoints: parsed.keyPoints || '- Key points unavailable'
+    },
+    diagramCode: diagram,
     diagramType: type,
     flashcards,
   };
 };
 
-/**
- * Ask a question about uploaded content using AI.
- */
 export const askQuestionAboutContent = async (
   _history: Message[],
-  currentQuestion: string,
+  question: string,
   contextText: string | null,
-  _contextFile: FileData | null
+  _file: FileData | null
 ): Promise<string> => {
-  const truncatedContext = contextText ? contextText.substring(0, 2000) : '';
+  return await generate(
+    `Answer this question based on the provided text. Be concise and direct.
 
-  const prompt = `You are a helpful study assistant. Answer the question based ONLY on the provided text. Be concise and accurate.\n\nContext: ${truncatedContext}\nQuestion: ${currentQuestion}\nAnswer:`;
-
-  return await runPrompt(prompt);
+Text: ${contextText?.substring(0, 1000)}
+Question: ${question}`,
+    200
+  );
 };
 
-/**
- * Generate a 6-question multiple choice quiz from uploaded content using AI.
- */
-export const generateQuiz = async (extractedText: string): Promise<QuizQuestion[]> => {
-  const truncatedText = extractedText.substring(0, 3000);
-  
-  const prompt = `Generate exactly 6 multiple choice questions from the following text.
-Return ONLY a valid JSON array, no markdown, no explanation:
+export const generateQuiz = async (text: string): Promise<QuizQuestion[]> => {
+  const result = await generate(
+    `Generate 3 multiple choice questions from this text. Return ONLY JSON array.
+
+Text: ${text.substring(0, 800)}
+
+Format:
 [
   {
-    "question": "...",
-    "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
-    "correctIndex": 0,
-    "explanation": "Brief explanation of why this is correct"
+    "question": "Question here",
+    "options": ["A", "B", "C", "D"],
+    "correctIndex": 0
   }
-]
-correctIndex is 0 for A, 1 for B, 2 for C, 3 for D.
-Text: ${truncatedText}`;
+]`,
+    300
+  );
 
-  const rawQuiz = await runPrompt(prompt);
-  
-  let quizJson: any[] = [];
   try {
-    quizJson = JSON.parse(rawQuiz);
+    return JSON.parse(result);
   } catch {
-    const match = rawQuiz.match(/\[[\s\S]*\]/);
-    if (match) {
-      try {
-        quizJson = JSON.parse(match[0]);
-      } catch (err) {
-        throw new Error('Failed to parse quiz response');
-      }
-    } else {
-      throw new Error('Failed to parse quiz response');
-    }
+    return [{
+      question: 'What is the main topic?',
+      options: ['Option A', 'Option B', 'Option C', 'Option D'],
+      correctIndex: 0,
+      explanation: '',
+    }];
   }
-
-  // Validate and map the JSON cleanly
-  return quizJson.map((q: any) => ({
-    question: q.question || 'Parsed question missing',
-    options: Array.isArray(q.options) && q.options.length === 4 
-             ? q.options 
-             : ['A', 'B', 'C', 'D'],
-    correctIndex: typeof q.correctIndex === 'number' && q.correctIndex >= 0 && q.correctIndex <= 3 
-                  ? q.correctIndex 
-                  : 0,
-    explanation: q.explanation || 'No explanation provided.'
-  }));
 };
 
-// Legacy exports for backward compatibility - these are no longer needed but kept to avoid breaking imports
 export const checkOllamaStatus = async (): Promise<boolean> => ready;
-export const getAvailableModels = async (): Promise<string[]> => ['smollm2'];
-
-// Mock activeModel for backward compatibility
-export const activeModel = 'smollm2';
-export const setActiveModel = (_model: string): void => {
-  // No-op - we use fixed model
-};
+export const getAvailableModels = async (): Promise<string[]> => [MODEL_ID];
+export const activeModel = MODEL_ID;
+export const setActiveModel = (_: string): void => {};
