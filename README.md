@@ -1,34 +1,33 @@
 # StudySketch AI 🧠✨
-**Turn notes into mind maps, flashcards, and summaries — 100% offline.**
+**Turn notes into mind maps, flashcards, quizzes, and summaries — 100% offline.**
 
-StudySketch AI is a powerful, privacy-first study companion that uses local LLMs to help you understand your learning material better. No data leaves your device.
+StudySketch AI is a privacy-first study companion powered by local LLMs. It transforms any document or audio into interactive study material — no cloud, no data leaks, no internet required after setup.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Features
 
-- **📂 Multi-Format Upload**: Support for PDF, DOCX, TXT, Markdown, and images (PNG/JPG).
-- **🗺️ Mind Maps**: Automatically generate interactive Mermaid.js diagrams from your notes.
-- **📝 Intelligent Summaries**: Get summaries in three formats:
-  - **One-liner**: For quick context.
-  - **Paragraph**: For a detailed overview.
-  - **Key Points**: For structured learning.
-- **🗂️ Smart Flashcards**: AI-generated flashcards with support for Anki CSV export.
-- **💬 AI Chat**: Context-aware Q&A based on your uploaded documents.
-- **🎮 Quiz Mode**: Test your knowledge with AI-generated multiple-choice questions.
-- **🎙️ Voice Support**: Transcribe audio and interact via voice commands.
-- **🔒 Fully Offline**: Powered by Transformers.js and RunAnywhere SDK — zero internet required after initial setup.
+| Feature | Details |
+|---|---|
+| 📂 **Multi-Format Upload** | PDF, DOCX, TXT, Markdown, PNG/JPG (OCR) |
+| 🗺️ **Mind Maps** | Auto-generated interactive Mermaid.js diagrams |
+| 📝 **Intelligent Summaries** | One-liner, paragraph, or key-points format |
+| 🗂️ **Smart Flashcards** | AI-generated cards with Anki CSV export |
+| 🔁 **Spaced Repetition** | SM-2 algorithm tracks card difficulty & review schedule |
+| 🎮 **Quiz Mode** | Multiple-choice questions generated from your content |
+| 💬 **AI Chat** | Context-aware Q&A grounded in your uploaded documents |
+| 🎙️ **Voice Support** | Whisper-powered transcription + voice commands |
+| 🕓 **Session History** | Last 10 study sessions saved locally; resume any time |
+| 🔀 **Model Switcher** | Swap between Ollama models for speed vs. quality |
+| 🔒 **Fully Offline** | Powered by Transformers.js & RunAnywhere SDK |
 
 ---
 
 ## 🚀 Getting Started
 
-
 ```bash
 # Clone the repository
 git clone https://github.com/nmnroy/study-sketch.git
-
-# Navigate to the project
 cd study-sketch
 
 # Install dependencies
@@ -38,26 +37,65 @@ npm install
 npm run dev
 ```
 
+> **Note:** The local AI model is downloaded on first run. Subsequent reloads skip initialization thanks to browser session guards.
+
 ---
 
 ## 🛠️ Technology Stack
 
 - **Frontend**: React 19, Vite, Tailwind CSS, Framer Motion
-- **AI Engine**: Local Inference (RunAnywhere)
-- **ML Utilities**: [Transformers.js](https://huggingface.co/docs/transformers.js/) (Local browser-based ML)
-- **Visuals**: [Mermaid.js](https://mermaid.js.org/) (Diagramming)
-- **Text Extraction**: Tesseract.js (OCR), Mammoth (DOCX), PDF.js (PDF)
+- **AI Engine**: RunAnywhere SDK (local LLM inference)
+- **Speech**: Transformers.js — Whisper (in-browser, offline)
+- **Diagrams**: Mermaid.js
+- **Text Extraction**: PDF.js · Mammoth (DOCX) · Tesseract.js (OCR)
+- **Storage**: localStorage (sessions, spaced-repetition records)
 
 ---
 
 ## 📂 Project Structure
 
-- `components/`: UI components (FileUpload, Flashcards, MermaidDiagram, etc.)
-- `services/`: AI and business logic (localAI.ts, fileProcessor.ts)
-- `App.tsx`: Main application entry and layout
-- `types.ts`: Global type definitions
+```
+studysketch-ai/
+├── components/
+│   ├── AudioRecorder.tsx     # Voice recording & Whisper transcription
+│   ├── ChatPanel.tsx         # Context-aware AI chat
+│   ├── FileUpload.tsx        # Multi-format file ingestion
+│   ├── Flashcards.tsx        # Flashcard viewer + Anki export
+│   ├── MermaidDiagram.tsx    # Interactive mind map renderer
+│   ├── ModelSwitcher.tsx     # Ollama model selector
+│   ├── QuizMode.tsx          # Multiple-choice quiz engine
+│   └── SessionHistory.tsx    # Past sessions browser
+├── services/
+│   ├── fileProcessor.ts      # Text extraction pipeline
+│   ├── localAI.ts            # LLM orchestration & session guards
+│   ├── sessionHistory.ts     # localStorage session CRUD
+│   ├── spacedRepetition.ts   # SM-2 spaced repetition engine
+│   └── whisper.ts            # Whisper inference wrapper
+├── App.tsx                   # Root layout & routing logic
+├── types.ts                  # Global TypeScript types
+└── index.html
+```
+
+---
+
+## 🔁 Spaced Repetition
+
+Flashcard reviews use a custom **SM-2** algorithm:
+- Cards rated **Easy / Medium / Hard** after each review.
+- Review intervals grow automatically for well-known cards.
+- Due cards surface on the correct day — no extra effort needed.
+- All data is stored in `localStorage` — fully private.
+
+---
+
+## 🕓 Session History
+
+Every completed study session (diagram + summary + flashcards) is auto-saved. You can:
+- Browse your last **10 sessions** from the sidebar.
+- Re-open any session to continue studying.
+- Delete sessions you no longer need.
 
 ---
 
 ## 📄 License
-MIT License. See `LICENSE` for details.
+MIT License. See [`LICENSE`](LICENSE) for details.
