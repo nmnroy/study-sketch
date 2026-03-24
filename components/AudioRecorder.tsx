@@ -41,14 +41,20 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onTranscription }) => {
   };
 
   const startRecording = async () => {
+    // Only load whisper model right before recording starts
     if (!isModelLoaded) {
-      await initWhisper();
-    }
-    
-    // Check if model loaded successfully
-    if (!isModelLoaded && !isModelLoading) {
-        // Will be true on next render if `initWhisper` succeeded, but let's re-verify inside state
-        // The await initWhisper() will complete first.
+      setIsModelLoading(true);
+      try {
+        await loadWhisperModel();
+        setIsModelLoaded(true);
+      } catch (error) {
+        console.error('Failed to load Whisper model:', error);
+        alert('Error loading Whisper model.');
+        setIsModelLoading(false);
+        return; // Don't try recording if model failed to load
+      } finally {
+        setIsModelLoading(false);
+      }
     }
 
     try {
@@ -73,7 +79,7 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onTranscription }) => {
           onTranscription(text);
         } catch (error) {
           console.error("Transcription failed:", error);
-          alert("Transcription failed. Please try again.");
+          alert("Voice input unavailable in this browser. Please use Chrome.");
         } finally {
           setIsTranscribing(false);
         }

@@ -41,7 +41,7 @@ import {
 
 // Updated README Content matching the user's description
 const README_CONTENT = `
-# 🎨 StudySketch AI
+# 🎨  StudySketch AI
 
 > **StudySketch AI transforms dense notes into interactive mind-maps, flowcharts, and flashcards — all offline on your device.**
 
@@ -148,25 +148,18 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initAI = async () => {
-      // Check window flag first — survives hot reloads
-      if ((window as any).__studysketch_ai_ready === true) {
+      // Check session flag first
+      if ((window as any).__ra_initialized === true) {
         setAiReady(true);
         setLoadingProgress(100);
         return;
       }
-
-      if (!isAIReady()) {
-        try {
-          await initializeAI((progress) => {
-            setLoadingProgress(progress);
-          });
-          setAiReady(true);
-        } catch (error) {
-          console.error('Failed to initialize AI:', error);
-          setAiReady(false);
-        }
-      } else {
+      try {
+        await initializeAI((p) => setLoadingProgress(p));
         setAiReady(true);
+      } catch (error) {
+        console.error('Failed to initialize AI:', error);
+        setAiReady(false);
       }
     };
     initAI();
@@ -241,25 +234,33 @@ const App: React.FC = () => {
   const loadDemoData = () => {
     setProcessingState({ status: 'processing', message: 'Loading demo content...' });
     setTimeout(() => {
-        setInputText("Photosynthesis is the process used by plants, algae and certain bacteria to harness energy from sunlight and turn it into chemical energy. The process takes place in the chloroplasts, specifically using chlorophyll. The inputs are Carbon Dioxide, Water, and Sunlight. The outputs are Glucose and Oxygen.");
+        setInputText("# Understanding Machine Learning\n\nMachine Learning (ML) is a subset of artificial intelligence that focuses on building systems that learn from data. Unlike traditional programming where rules are explicitly written, ML algorithms identify patterns in data to make decisions or predictions.\n\n## 1. Supervised Learning\nIn supervised learning, models are trained on labeled data. The algorithm learns mapping from inputs to outputs based on examples (like predicting house prices based on features).\n\n## 2. Unsupervised Learning\nUnsupervised learning uses unlabeled data. The goal is to find hidden patterns or groupings within the data. Clustering algorithms like K-Means organize data into distinct groups based on similarities.\n\n## 3. Reinforcement Learning\nReinforcement learning involves an agent learning to make decisions by performing actions in an environment to maximize cumulative reward.\n\n## 4. Deep Learning\nA specialized subset of ML based on artificial neural networks with multiple layers. It excels at processing unstructured data like images, audio, and text.");
         setContent({
-            diagramCode: `graph TD
-    A["Sunlight"] --> B("Chloroplast")
-    C["Water"] --> B
-    D["CO2"] --> B
-    B --> E["Glucose"]
-    B --> F["Oxygen"]
-    style B fill:#bbf,stroke:#333,stroke-width:2px`,
+            diagramCode: `mindmap
+  root((Machine Learning))
+    Supervised
+      Labeled Data
+      Predicts Outcomes
+    Unsupervised
+      Unlabeled Data
+      Finds Patterns
+    Reinforcement
+      Reward System
+      Decision Making
+    Deep Learning
+      Neural Networks
+      Complex Data`,
             summary: {
-              oneLiner: "Photosynthesis is the fundamental biological process by which plants and bacteria convert sunlight, water, and carbon dioxide into energy-rich glucose and oxygen.",
-              paragraph: "Photosynthesis is a biological process used by many cellular organisms to convert light energy into chemical energy. The process occurs primarily in the chloroplasts, utilizing the pigment chlorophyll to absorb sunlight. The system takes in water (H2O), carbon dioxide (CO2), and solar energy to drive a series of light-dependent and Calvin cycle reactions. The ultimate output is glucose, which provides energy for the plant, and oxygen, which is released into the atmosphere. This cycle forms the foundational basis for almost all life and complex food webs on Earth.",
-              keyPoints: "* Occurs in chloroplasts via chlorophyll\n* Inputs: Sunlight, Water (H2O), Carbon Dioxide (CO2)\n* Outputs: Glucose (Energy), Oxygen (O2)\n* Fundamental for life and global food webs"
+              oneLiner: "Machine Learning is an AI subset that enables systems to learn from data through supervised, unsupervised, reinforcement, and deep learning techniques.",
+              paragraph: "Machine Learning (ML) transforms how software operates by allowing systems to learn from data rather than relying on explicit programming. It encompasses several paradigms: supervised learning for labeled data, unsupervised learning for discovering hidden patterns, reinforcement learning for reward-based decision making, and deep learning for tackling complex unstructured data using neural networks.",
+              keyPoints: "* ML allows systems to learn from data patterns\n* Supervised Learning uses labeled data for predictions\n* Unsupervised Learning finds hidden structures in unlabeled data\n* Reinforcement Learning optimizes actions via rewards\n* Deep Learning uses neural networks for complex tasks"
             },
             diagramType: DiagramType.MINDMAP,
             flashcards: [
-                { id: 'demo1', front: "Where does photosynthesis take place?", back: "In the Chloroplasts" },
-                { id: 'demo2', front: "What are the primary inputs?", back: "Sunlight, Water, and Carbon Dioxide" },
-                { id: 'demo3', front: "What is the primary energy output?", back: "Glucose" }
+                { id: 'demo1', front: "What is Machine Learning?", back: "A subset of AI that builds systems capable of learning from data to make decisions." },
+                { id: 'demo2', front: "How does Supervised Learning work?", back: "It trains models on labeled data to learn the mapping from inputs to outputs." },
+                { id: 'demo3', front: "What is the goal of Unsupervised Learning?", back: "To discover hidden patterns or groupings within unlabeled data." },
+                { id: 'demo4', front: "What are Neural Networks used for in ML?", back: "They are the foundation of Deep Learning, used to process complex, unstructured data like images and text." }
             ]
         });
         setProcessingState({ status: 'completed' });
@@ -329,12 +330,17 @@ const App: React.FC = () => {
       };
       
       setChatMessages(prev => [...prev, botMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Chat error:", error);
+      const msg = error?.message || 'Unknown error';
+      let content = "Sorry, I encountered an error while processing your request.";
+      if (msg.includes('Timed out')) {
+        content = "The AI is still warming up. Please wait 30 seconds and try again.";
+      }
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: "Sorry, I encountered an error while processing your request.",
+        content,
         timestamp: Date.now()
       };
       setChatMessages(prev => [...prev, errorMessage]);
@@ -775,3 +781,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

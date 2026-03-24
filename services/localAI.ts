@@ -7,93 +7,129 @@ let progress = 0;
 const MODEL_ID = 'tinyllama-1.1b';
 const MODEL_URL = 'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
 
+let worker: Worker | null = null;
+let initPromise: Promise<void> | null = null;
+let msgIdCounter = 0;
+
 export async function initializeAI(onProgress?: (p: number) => void): Promise<void> {
-  console.log('[StudySketch] initializeAI called');
-  try {
-    await RunAnywhere.initialize({
-      apiKey: 'sk-Ik3KHBQXKTxEhklUKLXEyg',
-      environment: SDKEnvironment.Development,
-    });
-    console.log('[StudySketch] RunAnywhere initialized');
+  if (ready) {
+    onProgress?.(100);
+    return;
+  }
 
-    await LlamaCPP.register();
-    console.log('[StudySketch] LlamaCPP registered');
-    onProgress?.(5);
+  if (initPromise) {
+    return initPromise;
+  }
 
-    RunAnywhere.registerModels([{
-      id: MODEL_ID,
-      name: 'TinyLlama 1.1B',
-      url: MODEL_URL,
-      framework: LLMFramework.LlamaCpp,
-      modality: 'LLM' as any,
-    }]);
-
-    // CHECK IF ALREADY DOWNLOADED — skip download if cached
-    const runAnywhereModels = RunAnywhere.availableModels();
-    const managedModels = ModelManager.getModels();
-    
-    console.log('[StudySketch] RunAnywhere models:', runAnywhereModels.length);
-    console.log('[StudySketch] ModelManager models:', managedModels.length);
-    
-    const model = runAnywhereModels.find((m: any) => m.id === MODEL_ID) || 
-                  managedModels.find((m: any) => m.id === MODEL_ID);
-    
-    const status = model?.status;
-    const statusStr = status?.toString() || '';
-    const alreadyDownloaded = model && (
-      statusStr.includes('downloaded') ||
-      statusStr.includes('loaded') ||
-      statusStr.includes('Downloaded') ||
-      statusStr.includes('Loaded') ||
-      (model as any).isDownloaded ||
-      (model as any).isLoaded ||
-      ((model as any).downloadProgress !== undefined && (model as any).downloadProgress >= 1.0)
-    );
-    
-    console.log('[StudySketch] Model found:', !!model, 'status:', status, 'already downloaded:', alreadyDownloaded);
-
-    if (!alreadyDownloaded) {
-      console.log('[StudySketch] Downloading model (first time)...');
-      
-      const unsub = ModelManager.onChange((models: any[]) => {
-        const m = models.find((x: any) => x.id === MODEL_ID);
-        if (m?.downloadProgress) {
-          const raw = m.downloadProgress;
-          const fraction = typeof raw === 'number' ? raw : (raw?.progress ?? raw?.fraction ?? 0);
-          const p = Math.round(fraction * 80) + 10;
-          progress = p;
-          onProgress?.(p);
-          console.log('[StudySketch] Download:', p + '%');
-        }
+  initPromise = new Promise((resolve, reject) => {
+    try {
+      worker = new Worker(new URL('../src/aiWorker.ts', import.meta.url), {
+        type: 'module'
       });
 
-      await RunAnywhere.downloadModel(MODEL_ID);
-      unsub();
-      console.log('[StudySketch] Download complete');
-    } else {
-      console.log('[StudySketch] Model already cached, skipping download!');
+      worker.onmessage = (e) => {
+        const { type, payload } = e.data;
+        if (type === 'PROGRESS') {
+          progress = payload;
+          onProgress?.(payload);
+        } else if (type === 'INIT_DONE') {
+          ready = true;
+          onProgress?.(100);
+          resolve();
+        } else if (type === 'ERROR') {
+          console.error('[StudySketch] Worker Init Error:', payload.message);
+          reject(new Error(payload.message));
+        }
+      };
+
+      worker.postMessage({ type: 'INIT' });
+    } catch (err) {
+      console.error('[StudySketch] Init failed:', err);
+      reject(err);
     }
+  });
 
-    onProgress?.(90);
-    const success = await RunAnywhere.loadModel(MODEL_ID);
-    console.log('[StudySketch] loadModel:', success, 'isModelLoaded:', TextGeneration.isModelLoaded);
+  return initPromise;
+}
 
-    if (!TextGeneration.isModelLoaded) throw new Error('Model not loaded');
-
-    ready = true;
-    console.log('[StudySketch] AI READY!');
-    onProgress?.(100);
-  } catch (err) {
-    console.error('[StudySketch] Init failed:', (err as any)?.message ?? err);
-    ready = false;
+async function ensureModelReady(): Promise<void> {
+  if (!ready) {
+    await initializeAI();
   }
 }
 
-async function generate(prompt: string, maxTokens = 250): Promise<string> {
-  if (!ready) throw new Error('AI not ready');
-  // Use generate() directly — generateStream tokens property is unreliable
-  const result = await TextGeneration.generate(prompt, { maxTokens });
-  return result.text?.trim() ?? '';
+async function runPrompt(prompt: string): Promise<string> {
+  await ensureModelReady();
+  
+  if (!worker) throw new Error("Worker not initialized");
+
+  return new Promise((resolve, reject) => {
+    const id = ++msgIdCounter;
+    
+    const handler = (e: MessageEvent) => {
+      const { type, payload, id: msgId } = e.data;
+      if (msgId === id) {
+        if (type === 'GENERATE_RESULT') {
+          worker?.removeEventListener('message', handler);
+          resolve(payload.text);
+        } else if (type === 'ERROR') {
+          worker?.removeEventListener('message', handler);
+          reject(new Error(payload.message));
+        }
+      }
+    };
+    
+    worker.addEventListener('message', handler);
+    worker.postMessage({
+      type: 'GENERATE',
+      id,
+      payload: {
+        prompt,
+        options: {
+          maxTokens: 512,
+          temperature: 0.7,
+          systemPrompt: 'You are a helpful study assistant. Be concise.'
+        }
+      }
+    });
+  });
+}
+
+async function runPromptShort(prompt: string): Promise<string> {
+  await ensureModelReady();
+  
+  if (!worker) throw new Error("Worker not initialized");
+
+  return new Promise((resolve, reject) => {
+    const id = ++msgIdCounter;
+    
+    const handler = (e: MessageEvent) => {
+      const { type, payload, id: msgId } = e.data;
+      if (msgId === id) {
+        if (type === 'GENERATE_RESULT') {
+          worker?.removeEventListener('message', handler);
+          resolve(payload.text);
+        } else if (type === 'ERROR') {
+          worker?.removeEventListener('message', handler);
+          reject(new Error(payload.message));
+        }
+      }
+    };
+    
+    worker.addEventListener('message', handler);
+    worker.postMessage({
+      type: 'GENERATE',
+      id,
+      payload: {
+        prompt,
+        options: {
+          maxTokens: 256,
+          temperature: 0.3,
+          systemPrompt: 'You are a diagram generator. Return only valid Mermaid syntax.'
+        }
+      }
+    });
+  });
 }
 
 export function isAIReady(): boolean { return ready; }
@@ -143,7 +179,7 @@ CRITICAL REQUIREMENTS:
 - Keep responses concise and focused
 - Use ONLY the JSON structure above`;
 
-  const result = await generate(combinedPrompt, 500);
+  const result = await runPrompt(combinedPrompt);
   
   // Parse JSON response
   let parsed: any = {};
@@ -216,34 +252,36 @@ export const askQuestionAboutContent = async (
   contextText: string | null,
   _file: FileData | null
 ): Promise<string> => {
-  return await generate(
+  return await runPrompt(
     `Answer this question based on the provided text. Be concise and direct.
 
 Text: ${contextText?.substring(0, 1000)}
-Question: ${question}`,
-    200
+Question: ${question}`
   );
 };
 
 export const generateQuiz = async (text: string): Promise<QuizQuestion[]> => {
-  const result = await generate(
-    `Generate 3 multiple choice questions from this text. Return ONLY JSON array.
+  const truncatedText = text.substring(0, 1000);
+  const prompt = `Generate 6 multiple choice questions from this text.
+Return ONLY this JSON array, no extra text:
+[{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correctIndex":0,"explanation":"..."}]
+Text: ${truncatedText.substring(0, 1000)}`;
 
-Text: ${text.substring(0, 800)}
-
-Format:
-[
-  {
-    "question": "Question here",
-    "options": ["A", "B", "C", "D"],
-    "correctIndex": 0
-  }
-]`,
-    300
+  await ensureModelReady();
+  const { TextGeneration } = await import('@runanywhere/web-llamacpp');
+   
+  const quizTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Quiz generation timed out')), 180000)
   );
+  const quizGenerate = TextGeneration.generate(prompt, {
+    maxTokens: 1024,
+    temperature: 0.5,
+    systemPrompt: 'You are a quiz generator. Return only valid JSON arrays.'
+  });
+  const rawQuiz = (await Promise.race([quizGenerate, quizTimeout])).text;
 
   try {
-    return JSON.parse(result);
+    return JSON.parse(rawQuiz);
   } catch {
     return [{
       question: 'What is the main topic?',
@@ -254,7 +292,3 @@ Format:
   }
 };
 
-export const checkOllamaStatus = async (): Promise<boolean> => ready;
-export const getAvailableModels = async (): Promise<string[]> => [MODEL_ID];
-export const activeModel = MODEL_ID;
-export const setActiveModel = (_: string): void => {};

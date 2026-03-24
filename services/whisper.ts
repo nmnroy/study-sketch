@@ -1,72 +1,26 @@
-import { RunAnywhere } from '@runanywhere/web';
-import { ONNX, STT, STTModelType } from '@runanywhere/web-onnx';
-
-// Shared state
 let whisperLoaded = false;
 
-/**
- * Load Whisper model using RunAnywhere STT
- */
 export const loadWhisperModel = async (onProgress?: (data: any) => void): Promise<void> => {
-  if (whisperLoaded) return;
-  
-  try {
-    // Initialize RunAnywhere if not already done
-    await RunAnywhere.initialize();
-    
-    // Register ONNX backend
-    await ONNX.register();
-    
-    // Load Whisper model using STT
-    await STT.loadModel({
-      modelId: 'whisper-tiny-en',
-      type: STTModelType.Whisper,
-      // Note: Model files would need to be provided separately
-      // For now, we'll assume they're bundled with the SDK
-      modelFiles: {
-        encoder: '/models/whisper-tiny-en/encoder.onnx',
-        decoder: '/models/whisper-tiny-en/decoder.onnx',
-        tokens: '/models/whisper-tiny-en/tokens.txt',
-      }
-    });
-    
-    whisperLoaded = true;
-    
-    if (onProgress) {
-      onProgress({
-        progress: 100,
-        status: 'loaded'
-      });
-    }
-  } catch (error) {
-    console.error('Failed to load Whisper model:', error);
-    throw error;
-  }
+  // Use browser Web Speech API as fallback - no model download needed
+  whisperLoaded = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  if (onProgress) onProgress({ progress: 100, status: 'loaded' });
 };
 
-/**
- * Transcribe audio using RunAnywhere STT
- */
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
-  if (!whisperLoaded) {
-    await loadWhisperModel();
-  }
-
-  try {
-    // Convert Blob to File for STT.transcribeFile
-    const audioFile = new File([audioBlob], 'recording.webm', { type: audioBlob.type });
-    
-    // Use STT.transcribeFile for direct File processing
-    const result = await STT.transcribeFile(audioFile);
-    
-    return result.text || '';
-  } catch (error) {
-    console.error('Transcription error:', error);
-    throw error;
-  }
+  return new Promise((resolve, reject) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      reject(new Error('Speech recognition not supported in this browser'));
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event: any) => resolve(event.results[0][0].transcript);
+    recognition.onerror = (event: any) => reject(new Error(event.error));
+    recognition.start();
+  });
 };
 
-/**
- * Check if Whisper model is loaded
- */
 export const isWhisperLoaded = (): boolean => whisperLoaded;

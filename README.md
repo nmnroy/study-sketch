@@ -17,21 +17,13 @@ StudySketch AI is a powerful, privacy-first study companion that uses local LLMs
 - **💬 AI Chat**: Context-aware Q&A based on your uploaded documents.
 - **🎮 Quiz Mode**: Test your knowledge with AI-generated multiple-choice questions.
 - **🎙️ Voice Support**: Transcribe audio and interact via voice commands.
-- **🔒 Fully Offline**: Powered by Ollama and Transformers.js — zero internet required after initial setup.
+- **🔒 Fully Offline**: Powered by Transformers.js and RunAnywhere SDK — zero internet required after initial setup.
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- **Ollama**: [Download Ollama](https://ollama.com/download)
-- **Models**:
-  ```bash
-  ollama pull llama3.2
-  ollama serve
-  ```
 
-### 2. Installation
 ```bash
 # Clone the repository
 git clone https://github.com/nmnroy/study-sketch.git
@@ -51,7 +43,7 @@ npm run dev
 ## 🛠️ Technology Stack
 
 - **Frontend**: React 19, Vite, Tailwind CSS, Framer Motion
-- **AI Engine**: [Ollama](https://ollama.com/) (Local Inference)
+- **AI Engine**: Local Inference (RunAnywhere)
 - **ML Utilities**: [Transformers.js](https://huggingface.co/docs/transformers.js/) (Local browser-based ML)
 - **Visuals**: [Mermaid.js](https://mermaid.js.org/) (Diagramming)
 - **Text Extraction**: Tesseract.js (OCR), Mammoth (DOCX), PDF.js (PDF)
