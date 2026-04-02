@@ -1,29 +1,34 @@
 # StudySketch AI 🧠✨
-**Turn notes into mind maps, flashcards, quizzes, and summaries — 100% offline.**
 
-StudySketch AI is a privacy-first study companion powered by local LLMs. It transforms any document or audio into interactive study material — no cloud, no data leaks, no internet required after setup.
+**The Edge-AI Educational Engine: Turn notes into mind maps, flashcards, quizzes, and summaries — 100% offline.**
+
+StudySketch AI is a privacy-first, localized study companion powered by local LLMs. It instantly transforms passive study materials—like lecture recordings, PDFs, handwritten notes, and documents—into an interactive, multimodal learning ecosystem. 
+
+By leveraging modern inference engines and the sheer computing power of local devices, StudySketch AI brings the full capabilities of an AI tutor directly into the user's browser. **Zero cloud, zero data harvesting, and zero latency.**
 
 ---
 
-## 🌟 Features
+## 🌟 Groundbreaking Features
 
 | Feature | Details |
 |---|---|
-| 📂 **Multi-Format Upload** | PDF, DOCX, TXT, Markdown, PNG/JPG (OCR) |
-| 🗺️ **Mind Maps** | Auto-generated interactive Mermaid.js diagrams |
-| 📝 **Intelligent Summaries** | One-liner, paragraph, or key-points format |
-| 🗂️ **Smart Flashcards** | AI-generated cards with Anki CSV export |
-| 🔁 **Spaced Repetition** | SM-2 algorithm tracks card difficulty & review schedule |
-| 🎮 **Quiz Mode** | Multiple-choice questions generated from your content |
-| 💬 **AI Chat** | Context-aware Q&A grounded in your uploaded documents |
-| 🎙️ **Voice Support** | Whisper-powered transcription + voice commands |
-| 🕓 **Session History** | Last 10 study sessions saved locally; resume any time |
-| 🔀 **Model Switcher** | Swap between Ollama models for speed vs. quality |
-| 🔒 **Fully Offline** | Powered by Transformers.js & RunAnywhere SDK |
+| 📂 **Omni-Format Ingestion** | Seamlessly ingests PDF, DOCX, TXT, Markdown, and PNG/JPG (In-browser OCR). |
+| 🗺️ **Generative Mind Maps** | Autonomously synthesizes complex texts into interactive Mermaid.js diagrams to map conceptual relationships. |
+| 📝 **Intelligent Summaries** | Zero-latency context extraction into one-liner, paragraph, or key-points format. |
+| 🗂️ **Automated Active Recall** | Instantly generates intelligent flashcards with Anki CSV export capabilities. |
+| 🔁 **Algorithmic Spaced Repetition** | Local SM-2 algorithm tracks performance and adaptively schedules flashcard reviews to optimize memory retention. |
+| 🎮 **Dynamic Quiz Mode** | Automated multiple-choice test generation grounded strictly in your uploaded content. |
+| 💬 **Contextual Edge-Chat** | Converse with your offline lecture materials securely using local generative AI. |
+| 🎙️ **Voice Integration** | On-device Whisper-powered speech-to-text transcription and voice commands. |
+| 🕓 **Session History** | Localized knowledge-base automatically saves your past 10 sessions for offline resumption. |
+| 🔀 **Dynamic Model Switcher** | Swap between Ollama models on the fly to balance inference speed vs. reasoning quality. |
+| 🔒 **"Zero-Trust" Architecture** | Powered entirely locally by Transformers.js & RunAnywhere SDK. Your data never leaves your machine. |
 
 ---
 
 ## 🚀 Getting Started
+
+Experience decentralised learning at zero marginal infrastructure cost.
 
 ```bash
 # Clone the repository
@@ -37,63 +42,63 @@ npm install
 npm run dev
 ```
 
-> **Note:** The local AI model is downloaded on first run. Subsequent reloads skip initialization thanks to browser session guards.
+> **Note:** The local AI model is downloaded natively on your first run. Subsequent reloads skip network initialization entirely thanks to browser session guards, giving you instant, offline boot times.
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Edge-Native Technology Stack
 
-- **Frontend**: React 19, Vite, Tailwind CSS, Framer Motion
-- **AI Engine**: RunAnywhere SDK (local LLM inference)
-- **Speech**: Transformers.js — Whisper (in-browser, offline)
-- **Diagrams**: Mermaid.js
-- **Text Extraction**: PDF.js · Mammoth (DOCX) · Tesseract.js (OCR)
-- **Storage**: localStorage (sessions, spaced-repetition records)
+- **Frontend Ecosystem**: React 19, Vite, Tailwind CSS, Framer Motion
+- **Edge Inference Engine**: RunAnywhere SDK (Local LLM orchestration & session guards)
+- **Speech-to-Text**: Transformers.js — Whisper (In-browser, offline transcription)
+- **Visual Synthesis**: Mermaid.js for real-time relational mapping
+- **Data Ingestion**: PDF.js · Mammoth (DOCX) · Tesseract.js (WebAssembly OCR)
+- **Secure Persistence**: Browser `localStorage` (Session tracking & algorithmic spacing)
 
 ---
 
-## 📂 Project Structure
+## 📂 Project Architecture
 
 ```
 studysketch-ai/
 ├── components/
-│   ├── AudioRecorder.tsx     # Voice recording & Whisper transcription
-│   ├── ChatPanel.tsx         # Context-aware AI chat
-│   ├── FileUpload.tsx        # Multi-format file ingestion
-│   ├── Flashcards.tsx        # Flashcard viewer + Anki export
-│   ├── MermaidDiagram.tsx    # Interactive mind map renderer
-│   ├── ModelSwitcher.tsx     # Ollama model selector
-│   ├── QuizMode.tsx          # Multiple-choice quiz engine
-│   └── SessionHistory.tsx    # Past sessions browser
+│   ├── AudioRecorder.tsx     # Voice ingestion & Edge-Whisper pipeline
+│   ├── ChatPanel.tsx         # Context-aware offline AI chat interface
+│   ├── FileUpload.tsx        # Multi-modal file ingestion & parsing
+│   ├── Flashcards.tsx        # Active recall viewer + Anki integration
+│   ├── MermaidDiagram.tsx    # Interactive mind map rendering engine
+│   ├── ModelSwitcher.tsx     # Local AI model selector
+│   ├── QuizMode.tsx          # Dynamic multiple-choice testing
+│   └── SessionHistory.tsx    # localized state browser
 ├── services/
-│   ├── fileProcessor.ts      # Text extraction pipeline
-│   ├── localAI.ts            # LLM orchestration & session guards
-│   ├── sessionHistory.ts     # localStorage session CRUD
-│   ├── spacedRepetition.ts   # SM-2 spaced repetition engine
-│   └── whisper.ts            # Whisper inference wrapper
+│   ├── fileProcessor.ts      # Unstructured data extraction pipeline
+│   ├── localAI.ts            # LLM orchestration & memory management
+│   ├── sessionHistory.ts     # LocalStorage state management CRUD
+│   ├── spacedRepetition.ts   # On-device SM-2 tracking algorithm
+│   └── whisper.ts            # Local Transformers.js voice wrapper
 ├── App.tsx                   # Root layout & routing logic
-├── types.ts                  # Global TypeScript types
+├── types.ts                  # Global TypeScript type definitions
 └── index.html
 ```
 
 ---
 
-## 🔁 Spaced Repetition
+## 🔁 Algorithmic Spaced Repetition
 
-Flashcard reviews use a custom **SM-2** algorithm:
-- Cards rated **Easy / Medium / Hard** after each review.
-- Review intervals grow automatically for well-known cards.
-- Due cards surface on the correct day — no extra effort needed.
-- All data is stored in `localStorage` — fully private.
+Active recall reviews utilize a robust **SM-2** algorithm embedded in the browser:
+- Cards are rated **Easy / Medium / Hard** based on cognitive load.
+- Review intervals automatically scale iteratively for cemented concepts.
+- Due cards surface precisely when forgetting curves predict memory decay.
+- **100% Data Sovereignty:** All diagnostic data is stored securely in `localStorage`.
 
 ---
 
-## 🕓 Session History
+## 🕓 Knowledge Persistence
 
-Every completed study session (diagram + summary + flashcards) is auto-saved. You can:
-- Browse your last **10 sessions** from the sidebar.
-- Re-open any session to continue studying.
-- Delete sessions you no longer need.
+Every completed study synthesis (mind maps + summaries + active recall sets) is auto-saved natively:
+- Browse your localized history of the last **10 sessions** from the dashboard sidebar.
+- Re-hydrate any session instantly to resume studying off-the-grid.
+- Delete sessions securely with zero cloud-sync residue.
 
 ---
 
